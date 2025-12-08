@@ -10,7 +10,7 @@ import os
 # --- PATH CONFIGURATION ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # UPDATE THIS IF NEEDED
-SOURCE_FILE = '/Users/andysun/Downloads/LU_REC_MAP.sav'
+SOURCE_FILE = '/Users/andysun/Desktop/BMI706_SRTR_LUNG/LU_REC_MAP.sav'
 
 
 def get_geocoder():
@@ -37,7 +37,7 @@ def main():
         df, meta = pyreadstat.read_sav(SOURCE_FILE)
 
         # Load donor-level data
-        DONOR_FILE = "/Users/andysun/Downloads/LU_DON_MAP.sav"
+        DONOR_FILE = "/Users/andysun/Desktop/BMI706_SRTR_LUNG/LU_DON_MAP.sav"
         donor_df, donor_meta = pyreadstat.read_sav(DONOR_FILE)
 
         # Clean donor dates
