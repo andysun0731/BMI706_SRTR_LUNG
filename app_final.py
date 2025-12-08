@@ -3,6 +3,8 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 import os
+import plotly.express as px
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="Lung Transplant Data Visualization", page_icon="🫁", layout="wide")
 
@@ -20,7 +22,8 @@ def load_data():
 
 map_data, survival_data, survival_stats = load_data()
 
-# --- TAB 1 ---
+# --- TAB 1: Viz Map ---
+@st.fragment
 def run_viz_tab():
     st.header("OPO & Transplant Center Connections")
     if map_data.empty:
@@ -109,6 +112,8 @@ def run_viz_tab():
         'Center_Lon': 'first',
         'Center_Zip': 'first'
     }).reset_index()
+    # Rename to avoid scale conflict with OPO Transplants
+    center_agg = center_agg.rename(columns={'Transplants': 'Center_Transplants'})
 
     us_states = alt.topo_feature('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json', 'states')
     background = alt.Chart(us_states).mark_geoshape(
@@ -146,11 +151,11 @@ def run_viz_tab():
         longitude='OPO_Lon:Q',
         latitude='OPO_Lat:Q',
         size=alt.Size('Transplants:Q', 
-                     scale=alt.Scale(range=[100, 2000]),
-                     legend=None),
+                      scale=alt.Scale(type='linear', domain=[0, 1000], range=[100, 2000]),
+                      legend=None),
         color=alt.Color('DCU_Rate:Q',
-                       scale=alt.Scale(domain=[0, 0.5, 1], range=['#2166ac', '#9970ab', '#b2182b']),
-                       legend=alt.Legend(title='DCU-era donor', format='.0%', orient='right', direction='vertical', offset=10, legendY=200)),
+                        scale=alt.Scale(domain=[0, 0.5, 1], range=['#2166ac', '#9970ab', '#b2182b']),
+                        legend=alt.Legend(title='DCU-era donor', format='.0%', orient='right', direction='vertical', offset=10, legendY=200)),
         opacity=alt.condition(select_opo, alt.value(1), alt.value(0)),
         tooltip=[
             alt.Tooltip('OPO:N', title='OPO'),
@@ -181,26 +186,33 @@ def run_viz_tab():
         shape='triangle',
         filled=True,
         color='gold',
-        size=200,
-        strokeWidth=1.5,
+        strokeWidth=1,
         stroke='darkorange'
     ).encode(
         longitude='Center_Lon:Q',
         latitude='Center_Lat:Q',
-        size=alt.Size('Transplants:Q', scale=alt.Scale(range=[100, 600]), legend=None),
+        size=alt.Size('Center_Transplants:Q', 
+                      scale=alt.Scale(
+                          type='pow',  # Power scale
+                          exponent=0.8,
+                          domain=[0, 120],
+                          range=[10, 700]
+                      ), 
+                      legend=None),
         detail='OPO:N',
         tooltip=[
             alt.Tooltip('Center:N', title='Transplant Center'),
             alt.Tooltip('Center_Zip:N', title='ZIP Code'),
-            alt.Tooltip('Transplants:Q', title='Transplants from OPO'),
+            alt.Tooltip('Center_Transplants:Q', title='Transplants from OPO'),
             alt.Tooltip('OPO:N', title='OPO')
         ]
     ).transform_filter(
         select_lines
     )
     
-    # Combine: Background + OPOs + Lines + Centers
-    map_chart = background + opo_points + lines + center_points
+    # Combine and RESOLVE SCALE independently
+    # This prevents OPO size settings from affecting Center size settings
+    map_chart = (background + opo_points + lines + center_points).resolve_scale(size='independent')
     
     st.altair_chart(map_chart, use_container_width=True)
     
@@ -215,7 +227,8 @@ def run_viz_tab():
         avg_dcu = opo_agg['DCU_Rate'].mean()
         st.metric("Donor at OPO with effective DCU", f"{avg_dcu:.1%}")
 
-# --- TAB 2 ---
+# --- TAB 2: Survival ---
+@st.fragment
 def run_survival_tab():
     st.header("Survival Analysis")
     if survival_data.empty:
@@ -245,8 +258,6 @@ def run_survival_tab():
         opo_locations = opo_locations[opo_locations['OPO'].isin(all_opos)]
         
         if len(opo_locations) > 0:
-            import plotly.express as px
-            import plotly.graph_objects as go
             
             # Add selection status and colors
             opo_locations['Selected'] = opo_locations['OPO'].isin(st.session_state.selected_opos_survival)
@@ -426,20 +437,9 @@ def run_survival_tab():
         )
 
 
-
-
-
-
-
-
-
-
-
-
+# --- TAB 3: Utilization ---
+@st.fragment
 def run_utilization_tab():
-    import plotly.express as px
-    import plotly.graph_objects as go
-
     st.header("Donor Transplant Utilization")
 
     # ---- Load donor utilization dataset ----
@@ -854,18 +854,45 @@ def run_utilization_tab():
             use_container_width=True,
         )
 
+# --- MAIN APP LAYOUT ---
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "Map"
 
+# 2. Create a horizontal navigation menu that persists across reruns
+# We use a horizontal radio button to simulate tabs. 
+# This guarantees that even if the app fully reruns, it remembers where you were.
+st.markdown(
+    """
+    <style>
+    /* Optional: CSS to make the radio button look more like a navigation bar */
+    div[role="radiogroup"] {
+        flex-direction: row;
+        width: 100%;
+        justify-content: left;
+    }
+    div[data-testid="stRadio"] > label {
+        display: none; /* Hide the label "Navigate to:" */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
+# The Radio button automatically syncs with st.session_state.active_tab
+selected_tab = st.radio(
+    "Navigate to:",
+    ["Map", "Survival", "Utilization"],
+    horizontal=True,
+    key="active_tab" 
+)
 
+st.markdown("---")
 
-tab1, tab2, tab3 = st.tabs(["Map", "Survival", "Utilization"])
-
-with tab1:
+if selected_tab == "Map":
     run_viz_tab()
 
-with tab2:
+if selected_tab == "Survival":
     run_survival_tab()
 
-with tab3:
+if selected_tab == "Utilization":
     run_utilization_tab()
-
