@@ -124,29 +124,23 @@ def run_viz_tab():
         height=500
     )
     
-    # Selection for OPO dots visibility
-    # empty='all' means: when nothing selected, all OPOs visible; when something selected, only that OPO visible
-    # toggle=True allows clicking same OPO to deselect
-    # value=[] ensures initial state is empty
+    # Selection for OPO dots visibility (empty='all' -> all visible by default)
+    # clear='dblclick' means single-click on empty space won't deselect, double-click will
     select_opo = alt.selection_point(
         fields=['OPO'], 
         on='click', 
-        toggle=True,
-        empty='all',  # All visible when empty
-        name='SelectOPO',
-        value=[]
+        empty='all',
+        clear='dblclick',
+        name='SelectOPO'
     )
     
-    # Selection for lines and centers visibility
-    # empty=False means: when nothing selected, no lines visible; when something selected, matching lines visible
-    # This selection stays in sync with select_opo (both respond to same clicks)
+    # Selection for lines and centers visibility (empty='none' -> hidden by default)
     select_lines = alt.selection_point(
         fields=['OPO'], 
         on='click', 
-        toggle=True,
-        empty=False,  # None visible when empty
-        name='SelectLines',
-        value=[]
+        empty='none',
+        clear='dblclick',
+        name='SelectLines'
     )
     
     # OPO Points Layer
@@ -162,7 +156,7 @@ def run_viz_tab():
         color=alt.Color('DCU_Rate:Q',
                         scale=alt.Scale(domain=[0, 0.5, 1], range=['#2166ac', '#9970ab', '#b2182b']),
                         legend=alt.Legend(title='DCU-era donor', format='.0%', orient='right', direction='vertical', offset=10, legendY=200)),
-        opacity=alt.value(1),  # Full opacity since transform_filter handles visibility
+        opacity=alt.condition(select_opo, alt.value(1), alt.value(0)),
         tooltip=[
             alt.Tooltip('OPO:N', title='OPO'),
             alt.Tooltip('Transplants:Q', title='Total Transplants'),
@@ -170,29 +164,24 @@ def run_viz_tab():
         ]
     ).add_params(
         select_opo, select_lines
-    ).transform_filter(
-        select_opo  # Only include selected OPO (or all when nothing selected due to empty='all')
     )
     
-    # Connection lines from OPO to Centers - Completely filtered out by default
-    # transform_filter ensures lines don't exist at all until an OPO is selected
+    # Connection lines from OPO to Centers - Hidden by default
     lines = alt.Chart(conn_agg).mark_rule(
         color='orange', 
-        strokeWidth=2
+        strokeWidth=2, 
+        opacity=0.6
     ).encode(
         longitude='OPO_Lon:Q',
         latitude='OPO_Lat:Q',
         longitude2='Center_Lon:Q',
         latitude2='Center_Lat:Q',
-        detail='OPO:N',
-        opacity=alt.value(0.6)  # Full opacity since transform_filter handles visibility
+        detail='OPO:N'
     ).transform_filter(
-        select_lines  # Only include when an OPO is selected
+        select_lines
     )
     
-    # Transplant center points (triangles) - Completely filtered out by default
-    # transform_filter ensures the points don't exist at all until an OPO is selected
-    # This prevents invisible elements from receiving clicks
+    # Transplant center points (triangles) - Hidden by default
     center_points = alt.Chart(center_agg).mark_point(
         shape='triangle',
         filled=True,
@@ -216,16 +205,14 @@ def run_viz_tab():
             alt.Tooltip('Center_Zip:N', title='ZIP Code'),
             alt.Tooltip('Center_Transplants:Q', title='Transplants from OPO'),
             alt.Tooltip('OPO:N', title='OPO')
-        ],
-        opacity=alt.value(1)  # Full opacity since transform_filter handles visibility
+        ]
     ).transform_filter(
-        select_lines  # Only include when an OPO is selected
+        select_lines
     )
     
     # Combine and RESOLVE SCALE independently
-    # Layer order: background -> lines -> centers -> OPO points (on top)
-    # OPO points on top ensures they receive clicks, not the centers
-    map_chart = (background + lines + center_points + opo_points).resolve_scale(size='independent')
+    # This prevents OPO size settings from affecting Center size settings
+    map_chart = (background + opo_points + lines + center_points).resolve_scale(size='independent')
     
     st.altair_chart(map_chart, use_container_width=True)
     
@@ -464,6 +451,15 @@ def run_utilization_tab():
         return
 
     util_df = pd.read_csv(util_file)
+    # ---- Load LUNDON summary (DBD only) ----
+    lundon_file = os.path.join(script_dir, "viz_lundon_summary.csv")
+
+    lundon_df = None
+    if os.path.exists(lundon_file):
+        lundon_df = pd.read_csv(lundon_file)
+    # Expect columns: ['DON_OPO', 'Mean_LUNDON']
+
+    
 
     # Expect columns:
     # ['Year', 'Month', 'DON_OPO', 'CAS_Period',
@@ -487,14 +483,17 @@ def run_utilization_tab():
     )
 
     # Merge basic utilization info (overall) to drive map coloring/size
+
     overall_util = (
         util_df.groupby("DON_OPO")
         .agg(
             Overall_Utilization=("Utilization_Rate", "mean"),
+            Overall_DCU=("DCU_Rate", "mean"),
             Overall_Donors=("Total_Donors", "sum")
         )
         .reset_index()
     )
+
 
     opo_map_df = opo_locations.merge(
         overall_util, on="DON_OPO", how="left"
@@ -518,10 +517,12 @@ def run_utilization_tab():
 
     with col_f2:
         donor_type_filter = st.radio(
-            "Donor Type",
-            ["All donors", "DBD only", "DCD only", "Compare DCD vs DBD"],
-            horizontal=True
-        )
+        "Donor Type",
+        ["All donors", "Compare DCD vs DBD"],
+        horizontal=True
+    )
+
+        
 
     with col_f3:
         show_reference_line = st.checkbox(
@@ -545,41 +546,50 @@ def run_utilization_tab():
     opo_map_df["Selected"] = opo_map_df["DON_OPO"].isin(
         st.session_state.selected_opos_util
     )
-    opo_map_df["Color"] = opo_map_df["Selected"].apply(
-        lambda x: "#2ca02c" if x else "#1f77b4"
-    )
     opo_map_df["Status"] = opo_map_df["Selected"].apply(
         lambda x: "Selected" if x else "Click to select"
     )
-
     fig_map = go.Figure()
-
     fig_map.add_trace(
         go.Scattergeo(
             lon=opo_map_df["OPO_Lon"],
             lat=opo_map_df["OPO_Lat"],
             text=opo_map_df["DON_OPO"],
-            customdata=opo_map_df[["DON_OPO", "Overall_Utilization",
-                                   "Overall_Donors", "Status"]].values,
+            customdata=opo_map_df[["DON_OPO", "Overall_DCU", "Overall_Donors", "Status"]].values,
             hovertemplate=(
-                "<b>%{customdata[0]}</b><br>"  # OPO
-                "Utilization: %{customdata[1]:.1%}<br>"
-                "Total donors (overall): %{customdata[2]}<br>"
+                "<b>%{customdata[0]}</b><br>"
+                "DCU rate: %{customdata[1]:.1%}<br>"
+                "Total donors: %{customdata[2]}<br>"
                 "%{customdata[3]}<extra></extra>"
             ),
             mode="markers",
             marker=dict(
-                size=(
-                    opo_map_df["Overall_Donors"]
-                    / max(opo_map_df["Overall_Donors"].max(), 1)
-                    * 30 + 8
-                ),
-                color=opo_map_df["Color"],
-                line=dict(width=1, color="white"),
-                opacity=0.85,
+            size=(
+                opo_map_df["Overall_Donors"]
+                / max(opo_map_df["Overall_Donors"].max(), 1)
+                * 30 + 8
+            ),
+            color=opo_map_df["Overall_DCU"],
+            colorscale=[
+                [0.0, "#2166ac"],
+                [0.5, "#9970ab"],
+                [1.0, "#b2182b"],
+            ],
+            cmin=0,
+            cmax=1,
+
+            # 🔥 VISUAL FEEDBACK
+            line=dict(
+                width=opo_map_df["Selected"].map(lambda x: 3 if x else 1),
+                color=opo_map_df["Selected"].map(lambda x: "yellow" if x else "white"),
+            ),
+            opacity=opo_map_df["Selected"].map(lambda x: 1.0 if x else 0.6),
+
+            colorbar=dict(title="DCU-era donor"),
             ),
         )
     )
+
 
     fig_map.update_geos(
         scope="usa",
@@ -651,11 +661,6 @@ def run_utilization_tab():
     if cas_filter != "All":
         df = df[df["CAS_Period"] == cas_filter]
 
-    # donor-type filter for non-compare views
-    if donor_type_filter == "DBD only":
-        df = df[df["DCD"] == 0]
-    elif donor_type_filter == "DCD only":
-        df = df[df["DCD"] == 1]
     # "Compare" handled separately later
 
     # ------------------------------------------------------------------
@@ -688,7 +693,7 @@ def run_utilization_tab():
         delta_util = None
         selected_donors = 0
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.metric(
             "National Utilization",
@@ -705,16 +710,6 @@ def run_utilization_tab():
             st.metric("Selected OPOs Utilization", "—")
 
     with c3:
-        if national_dbd_util is not None and national_dcd_util is not None:
-            diff_dcd_dbd = national_dcd_util - national_dbd_util
-            st.metric(
-                "DCD – DBD (National)",
-                f"{diff_dcd_dbd:+.1%}",
-            )
-        else:
-            st.metric("DCD – DBD (National)", "—")
-
-    with c4:
         st.metric("Donors (Selected OPOs)", f"{selected_donors:,}")
 
     st.markdown("---")
@@ -737,9 +732,11 @@ def run_utilization_tab():
             Used=("Used_Donors", "sum"),
             Total=("Total_Donors", "sum")
         ).reset_index()
+
         opo_util_df["Utilization"] = opo_util_df["Used"] / opo_util_df["Total"]
         opo_util_df = opo_util_df.rename(columns={"DON_OPO": "OPO"})
 
+    # ---- Base chart dataframe (Utilization) ----
         chart_df = pd.concat(
             [
                 pd.DataFrame(
@@ -748,27 +745,46 @@ def run_utilization_tab():
                 opo_util_df[["OPO", "Utilization"]],
             ],
             ignore_index=True,
-        )
+        )   
 
-        fig_bar = px.bar(
-            chart_df,
-            x="OPO",
-            y="Utilization",
-            labels={"OPO": "OPO", "Utilization": "Utilization Rate"},
-            text=chart_df["Utilization"].map(lambda x: f"{x:.1%}"),
-        )
-        fig_bar.update_traces(textposition="outside")
-        fig_bar.update_yaxes(tickformat=".0%", rangemode="tozero")
-
-        # National reference line
-        if show_reference_line:
-            fig_bar.add_hline(
-                y=national_util,
-                line_dash="dash",
-                line_color="black",
-                annotation_text="National",
-                annotation_position="top left",
+    # ---- Merge LUNDON (DBD only) ----
+        if lundon_df is not None:
+            chart_df = chart_df.merge(
+                lundon_df.rename(columns={"DON_OPO": "OPO"}),
+                on="OPO",
+                how="left"
             )
+        # --- ADD THIS: Ensure no duplicate OPOs before melting ---
+        chart_df = chart_df.groupby("OPO", as_index=False).agg({
+            "Utilization": "mean",
+            "Mean_LUNDON": "mean"
+        })
+
+    # ---- Reshape for grouped bars (Utilization vs LUNDON) ----
+        plot_df = chart_df.melt(
+            id_vars="OPO",
+            value_vars=["Utilization", "Mean_LUNDON"],
+            var_name="Metric",
+            value_name="Value"
+        ).dropna()
+
+        util_df = plot_df[plot_df["Metric"] == "Utilization"]
+        lundon_df_plot = plot_df[plot_df["Metric"] == "Mean_LUNDON"]
+
+        lundon_df_plot = (
+            lundon_df_plot
+            .groupby("OPO", as_index=False)
+            .agg(Value=("Value", "mean"))
+        )
+
+
+
+    
+        util_plot_df = util_df
+        lundon_plot_df = lundon_df_plot
+
+
+    
 
     # --- Compare mode: grouped bars DCD vs DBD ---
     else:
@@ -809,39 +825,27 @@ def run_utilization_tab():
             {0: "DBD", 1: "DCD"}
         )
 
-        fig_bar = px.bar(
-            comp_df,
-            x="DON_OPO",
-            y="Utilization_Rate",
-            color="Donor_Type",
-            barmode="group",
-            labels={
-                "DON_OPO": "OPO",
-                "Utilization_Rate": "Utilization Rate",
-            },
-            text=comp_df["Utilization_Rate"].map(lambda x: f"{x:.1%}"),
-            color_discrete_map={"DBD": "#1f77b4", "DCD": "#ff7f0e"},
-        )
-        fig_bar.update_traces(textposition="outside")
-        fig_bar.update_yaxes(tickformat=".0%", rangemode="tozero")
+        
+        # ---- Add LUNDON as reference (DBD only) ----
+        if lundon_df is not None:
+            lundon_plot = lundon_df.rename(columns={"DON_OPO": "OPO"})
 
-        # In compare mode the "reference line" is less meaningful,
-        # but still draw the overall national average if requested.
-        if show_reference_line:
-            fig_bar.add_hline(
-                y=national_util,
-                line_dash="dash",
-                line_color="black",
-                annotation_text=f"National ({cas_filter}, {donor_type_filter})",
-                annotation_position="top left",
+            lundon_plot = (
+                lundon_plot
+                .groupby("OPO", as_index=False)
+                .agg(Value=("Mean_LUNDON", "mean"))
             )
 
-    fig_bar.update_layout(
-        height=500,
-        margin=dict(l=20, r=20, t=10, b=40),
-    )
+            # Keep National + selected OPOs
+            if opos_for_chart:
+                lundon_plot = lundon_plot[
+                    (lundon_plot["OPO"] == "National")
+                    | (lundon_plot["OPO"].isin(opos_for_chart))
+                ]
 
-    st.plotly_chart(fig_bar, use_container_width=True)
+        util_plot_df = comp_df.copy()
+        lundon_plot_df = lundon_plot.copy()
+
 
     # ------------------------------------------------------------------
     # 6) Optional: data table for export / inspection
@@ -866,6 +870,78 @@ def run_utilization_tab():
             ].rename(columns={"DCD": "DCD(1) vs DBD(0)"}),
             use_container_width=True,
         )
+    # ==========================
+    # Draw utilization + LUNDON
+    # ==========================
+    col1, col2 = st.columns(2)
+
+    # ---- LEFT: Utilization ----
+    with col1:
+        if donor_type_filter == "Compare DCD vs DBD":
+            fig_util = px.bar(
+                util_plot_df,
+                x="DON_OPO",
+                y="Utilization_Rate",
+                color="Donor_Type",
+                barmode="group",
+                title="Utilization Rate (DCD vs DBD)",
+            )
+        else:
+          
+            rest = [opo for opo in util_plot_df["OPO"].unique() if opo != "National"]
+            #
+
+            opo_order = ['National'] + rest
+
+            util_plot_df["OPO"] = pd.Categorical(util_plot_df["OPO"], categories=opo_order, ordered=True)
+            fig_util = px.bar(
+                util_plot_df,
+                x="OPO",
+                y="Value",
+                title="Utilization Rate",
+                text_auto=False,
+                category_orders={"OPO": opo_order},
+            )
+        fig_util.update_traces(text=None, texttemplate="%{y:.1%}", textposition="outside", cliponaxis=False)
+
+
+        fig_util.update_yaxes(tickformat=".0%", rangemode="tozero")
+
+
+
+        st.plotly_chart(fig_util, use_container_width=True)
+
+    # ---- RIGHT: LUNDON ----
+    with col2:
+        fig_lundon = px.bar(
+            lundon_plot_df,
+            x="OPO",
+            y="Value",
+            title="Mean LUNDON Score (DBD only)",
+            text=lundon_plot_df["Value"].map(lambda x: f"{x:.1f}"),
+        )
+
+        fig_lundon.update_traces(
+            marker_color="#2ca02c",
+            textposition="outside"
+        )
+
+        fig_lundon.update_yaxes(rangemode="tozero")
+
+        fig_lundon.add_annotation(
+            text="LUNDON calculated from DBD donors only",
+            xref="paper",
+            yref="paper",
+            x=0,
+            y=1.08,
+            showarrow=False,
+            font=dict(size=11, color="gray"),
+        )
+
+        st.plotly_chart(fig_lundon, use_container_width=True)
+
+       
+
 
 # --- MAIN APP LAYOUT ---
 if "active_tab" not in st.session_state:

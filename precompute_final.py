@@ -10,7 +10,10 @@ import os
 # --- PATH CONFIGURATION ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # UPDATE THIS IF NEEDED
-SOURCE_FILE = '/Users/andysun/Desktop/BMI706_SRTR_LUNG/LU_REC_MAP.sav'
+SOURCE_FILE = os.path.join(
+    "/Users/lanrr/Downloads/706_Data_Visualization/drive-download-20251208T024017Z-1-001",
+    "LU_REC_MAP.sav"
+)
 
 
 def get_geocoder():
@@ -37,7 +40,10 @@ def main():
         df, meta = pyreadstat.read_sav(SOURCE_FILE)
 
         # Load donor-level data
-        DONOR_FILE = "/Users/andysun/Desktop/BMI706_SRTR_LUNG/LU_DON_MAP.sav"
+        DONOR_FILE = os.path.join(
+            "/Users/lanrr/Downloads/706_Data_Visualization/drive-download-20251208T024017Z-1-001",
+            "LU_DON_MAP.sav"
+        )
         donor_df, donor_meta = pyreadstat.read_sav(DONOR_FILE)
 
         # Clean donor dates
@@ -166,8 +172,7 @@ def main():
     pd.DataFrame(p_values).to_csv(os.path.join(SCRIPT_DIR, 'viz_survival_stats.csv'), index=False)
 
 
-
-
+   
     # ----------------------------------------------------------
     # 4. DONOR UTILIZATION DATA 
     # ----------------------------------------------------------
@@ -180,17 +185,26 @@ def main():
     donor_df["CAS_Period"] = donor_df["DON_RECOV_DT"].apply(
         lambda d: "Pre-CAS" if d < CAS_DATE else "Post-CAS"
     )
+    
+    lundon_df = donor_df[
+        (donor_df["DCD"] == 0) &
+        (~donor_df["LUNDON"].isna())
+    ].copy()
+    
+        # Monthly OPO-level donor utilization summary, including LUNDON (DBD will have non-missing)
     donor_util = (
         donor_df.groupby(["Year", "Month", "DON_OPO", "CAS_Period", "DCD"])
         .agg(
             Total_Donors=("Transplanted", "count"),
             Used_Donors=("Transplanted", "sum"),
             Utilization_Rate=("Transplanted", "mean"),
-            DCU_Rate=("DCU_any", "mean")
+            DCU_Rate=("DCU_any", "mean"),
+            Mean_LUNDON=("LUNDON", "mean"),
+            Median_LUNDON=("LUNDON", "median"),
+            N_LUNDON=("LUNDON", "count"),
         )
         .reset_index()
     )
-
 
     donor_util.to_csv(os.path.join(SCRIPT_DIR, "viz_donor_utilization.csv"), index=False)
 
@@ -204,6 +218,24 @@ def main():
         )
         .reset_index()
     )
+
+    donor_lundon_summary = (
+        lundon_df
+        .groupby(["DON_OPO", "CAS_Period"])
+        .agg(
+            Mean_LUNDON=("LUNDON", "mean"),
+            Median_LUNDON=("LUNDON", "median"),
+            N=("LUNDON", "count")
+        )
+        .reset_index()
+    )
+
+    donor_lundon_summary.to_csv(
+        os.path.join(SCRIPT_DIR, "viz_lundon_summary.csv"),
+        index=False
+    )
+
+
 
 
 
