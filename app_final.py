@@ -167,21 +167,21 @@ def run_viz_tab():
     )
     
     # Connection lines from OPO to Centers - Hidden by default
+    # Using opacity condition instead of transform_filter for consistent behavior on Streamlit Cloud
     lines = alt.Chart(conn_agg).mark_rule(
         color='orange', 
-        strokeWidth=2, 
-        opacity=0.6
+        strokeWidth=2
     ).encode(
         longitude='OPO_Lon:Q',
         latitude='OPO_Lat:Q',
         longitude2='Center_Lon:Q',
         latitude2='Center_Lat:Q',
-        detail='OPO:N'
-    ).transform_filter(
-        select_lines
+        detail='OPO:N',
+        opacity=alt.condition(select_lines, alt.value(0.6), alt.value(0))
     )
     
     # Transplant center points (triangles) - Hidden by default
+    # Using opacity condition instead of transform_filter for consistent behavior on Streamlit Cloud
     center_points = alt.Chart(center_agg).mark_point(
         shape='triangle',
         filled=True,
@@ -205,9 +205,8 @@ def run_viz_tab():
             alt.Tooltip('Center_Zip:N', title='ZIP Code'),
             alt.Tooltip('Center_Transplants:Q', title='Transplants from OPO'),
             alt.Tooltip('OPO:N', title='OPO')
-        ]
-    ).transform_filter(
-        select_lines
+        ],
+        opacity=alt.condition(select_lines, alt.value(1), alt.value(0))
     )
     
     # Combine and RESOLVE SCALE independently
