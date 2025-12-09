@@ -134,13 +134,15 @@ def run_viz_tab():
         name='SelectOPO'
     )
     
-    # Selection for lines and centers visibility (empty='none' -> hidden by default)
+    # Selection for lines and centers visibility
+    # Using value=['__NONE__'] as initial state - this ensures no OPO matches on initial load
+    # This fixes the Streamlit Cloud issue where empty='none' doesn't work consistently
     select_lines = alt.selection_point(
         fields=['OPO'], 
         on='click', 
-        empty='none',
         clear='dblclick',
-        name='SelectLines'
+        name='SelectLines',
+        value=[{'OPO': '__NONE__'}]  # Initial value that won't match any real OPO
     )
     
     # OPO Points Layer
@@ -167,7 +169,8 @@ def run_viz_tab():
     )
     
     # Connection lines from OPO to Centers - Hidden by default
-    # Using opacity condition instead of transform_filter for consistent behavior on Streamlit Cloud
+    # Using transform_filter to completely exclude lines until an OPO is selected
+    # This approach works consistently on both local and Streamlit Cloud
     lines = alt.Chart(conn_agg).mark_rule(
         color='orange', 
         strokeWidth=2
@@ -177,11 +180,13 @@ def run_viz_tab():
         longitude2='Center_Lon:Q',
         latitude2='Center_Lat:Q',
         detail='OPO:N',
-        opacity=alt.condition(select_lines, alt.value(0.6), alt.value(0))
+        opacity=alt.value(0.6)
+    ).transform_filter(
+        select_lines
     )
     
     # Transplant center points (triangles) - Hidden by default
-    # Using opacity condition instead of transform_filter for consistent behavior on Streamlit Cloud
+    # Using transform_filter to completely exclude centers until an OPO is selected
     center_points = alt.Chart(center_agg).mark_point(
         shape='triangle',
         filled=True,
@@ -206,7 +211,9 @@ def run_viz_tab():
             alt.Tooltip('Center_Transplants:Q', title='Transplants from OPO'),
             alt.Tooltip('OPO:N', title='OPO')
         ],
-        opacity=alt.condition(select_lines, alt.value(1), alt.value(0))
+        opacity=alt.value(1)
+    ).transform_filter(
+        select_lines
     )
     
     # Combine and RESOLVE SCALE independently
