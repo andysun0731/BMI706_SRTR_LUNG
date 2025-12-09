@@ -124,25 +124,29 @@ def run_viz_tab():
         height=500
     )
     
-    # Selection for OPO dots visibility (empty='all' -> all visible by default)
-    # clear='dblclick' means single-click on empty space won't deselect, double-click will
+    # Selection for OPO dots visibility
+    # empty='all' means: when nothing selected, all OPOs visible; when something selected, only that OPO visible
+    # toggle=True allows clicking same OPO to deselect
+    # value=[] ensures initial state is empty
     select_opo = alt.selection_point(
         fields=['OPO'], 
         on='click', 
-        empty='all',
-        clear='dblclick',
-        name='SelectOPO'
+        toggle=True,
+        empty='all',  # All visible when empty
+        name='SelectOPO',
+        value=[]
     )
     
     # Selection for lines and centers visibility
-    # Using value=['__NONE__'] as initial state - this ensures no OPO matches on initial load
-    # This fixes the Streamlit Cloud issue where empty='none' doesn't work consistently
+    # empty=False means: when nothing selected, no lines visible; when something selected, matching lines visible
+    # This selection stays in sync with select_opo (both respond to same clicks)
     select_lines = alt.selection_point(
         fields=['OPO'], 
         on='click', 
-        clear='dblclick',
+        toggle=True,
+        empty=False,  # None visible when empty
         name='SelectLines',
-        value=[{'OPO': '__NONE__'}]  # Initial value that won't match any real OPO
+        value=[]
     )
     
     # OPO Points Layer
@@ -158,7 +162,7 @@ def run_viz_tab():
         color=alt.Color('DCU_Rate:Q',
                         scale=alt.Scale(domain=[0, 0.5, 1], range=['#2166ac', '#9970ab', '#b2182b']),
                         legend=alt.Legend(title='DCU-era donor', format='.0%', orient='right', direction='vertical', offset=10, legendY=200)),
-        opacity=alt.condition(select_opo, alt.value(1), alt.value(0)),
+        opacity=alt.value(1),  # Full opacity since transform_filter handles visibility
         tooltip=[
             alt.Tooltip('OPO:N', title='OPO'),
             alt.Tooltip('Transplants:Q', title='Total Transplants'),
@@ -166,11 +170,12 @@ def run_viz_tab():
         ]
     ).add_params(
         select_opo, select_lines
+    ).transform_filter(
+        select_opo  # Only include selected OPO (or all when nothing selected due to empty='all')
     )
     
-    # Connection lines from OPO to Centers - Hidden by default
-    # Using transform_filter to completely exclude lines until an OPO is selected
-    # This approach works consistently on both local and Streamlit Cloud
+    # Connection lines from OPO to Centers - Completely filtered out by default
+    # transform_filter ensures lines don't exist at all until an OPO is selected
     lines = alt.Chart(conn_agg).mark_rule(
         color='orange', 
         strokeWidth=2
@@ -180,13 +185,14 @@ def run_viz_tab():
         longitude2='Center_Lon:Q',
         latitude2='Center_Lat:Q',
         detail='OPO:N',
-        opacity=alt.value(0.6)
+        opacity=alt.value(0.6)  # Full opacity since transform_filter handles visibility
     ).transform_filter(
-        select_lines
+        select_lines  # Only include when an OPO is selected
     )
     
-    # Transplant center points (triangles) - Hidden by default
-    # Using transform_filter to completely exclude centers until an OPO is selected
+    # Transplant center points (triangles) - Completely filtered out by default
+    # transform_filter ensures the points don't exist at all until an OPO is selected
+    # This prevents invisible elements from receiving clicks
     center_points = alt.Chart(center_agg).mark_point(
         shape='triangle',
         filled=True,
@@ -211,14 +217,15 @@ def run_viz_tab():
             alt.Tooltip('Center_Transplants:Q', title='Transplants from OPO'),
             alt.Tooltip('OPO:N', title='OPO')
         ],
-        opacity=alt.value(1)
+        opacity=alt.value(1)  # Full opacity since transform_filter handles visibility
     ).transform_filter(
-        select_lines
+        select_lines  # Only include when an OPO is selected
     )
     
     # Combine and RESOLVE SCALE independently
-    # This prevents OPO size settings from affecting Center size settings
-    map_chart = (background + opo_points + lines + center_points).resolve_scale(size='independent')
+    # Layer order: background -> lines -> centers -> OPO points (on top)
+    # OPO points on top ensures they receive clicks, not the centers
+    map_chart = (background + lines + center_points + opo_points).resolve_scale(size='independent')
     
     st.altair_chart(map_chart, use_container_width=True)
     
