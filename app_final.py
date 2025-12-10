@@ -30,7 +30,6 @@ def run_viz_tab():
         st.error("Map data not found. Run precompute.py first.")
         return
 
-    # Handle both old format (Year only) and new format (Year + Month)
     if 'Month' in map_data.columns:
         map_data_local = map_data.copy()
     else:
@@ -38,24 +37,19 @@ def run_viz_tab():
         map_data_local = map_data.copy()
         map_data_local['Month'] = 1
     
-    # Create YearMonth numeric and label columns
     map_data_local['YearMonthNum'] = map_data_local['Year'] * 100 + map_data_local['Month']
     
-    # Get all unique YearMonth values sorted
     all_ym_nums = sorted(map_data_local['YearMonthNum'].unique())
     
-    # Create label mapping (e.g., 202303 -> "Mar 2023")
     month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     def ym_to_label(ym_num):
         year = ym_num // 100
         month = ym_num % 100
         return f"{month_names[month-1]} {year}"
     
-    # Create slider with YearMonth range
     min_ym = min(all_ym_nums)
     max_ym = max(all_ym_nums)
     
-    # CAS Implementation marker ABOVE slider (March 2023 = 202303)
     cas_ym = 202303
     if min_ym <= cas_ym <= max_ym:
         # Calculate relative position for the marker
@@ -75,7 +69,6 @@ def run_viz_tab():
                 unsafe_allow_html=True
             )
     
-    # Range slider
     selected_range = st.select_slider(
         "Select Date Range",
         options=all_ym_nums,
@@ -86,15 +79,12 @@ def run_viz_tab():
     
     st.write("Dot size represents the number of transplants. **Click on an OPO** to see its connections to transplant centers.")
     
-    # Initialize reset counter for the Reset Map button
     if 'map_reset_counter' not in st.session_state:
         st.session_state.map_reset_counter = 0
     map_version = st.session_state.map_reset_counter
     
-    # Filter data by year-month range
     filtered = map_data_local[(map_data_local['YearMonthNum'] >= start_ym_num) & (map_data_local['YearMonthNum'] <= end_ym_num)]
     
-    # Aggregate OPO-to-Center connections (for lines and center points)
     conn_agg = filtered.groupby(['OPO', 'Center', 'OPO_Lat', 'OPO_Lon', 'Center_Lat', 'Center_Lon']).agg({
         'Count': 'sum',
         'DCU_Rate': 'mean',
@@ -102,7 +92,6 @@ def run_viz_tab():
         'Center_Zip': 'first'
     }).reset_index().rename(columns={'Count': 'Transplants'})
 
-    # Aggregate OPO data (for OPO points)
     opo_agg = conn_agg.groupby('OPO').agg({
         'Transplants': 'sum', 
         'DCU_Rate': 'mean', 
@@ -110,14 +99,12 @@ def run_viz_tab():
         'OPO_Lon': 'first'
     }).reset_index()
     
-    # Aggregate Center data (for center triangle points)
     center_agg = conn_agg.groupby(['OPO', 'Center']).agg({
         'Transplants': 'sum',
         'Center_Lat': 'first',
         'Center_Lon': 'first',
         'Center_Zip': 'first'
     }).reset_index()
-    # Rename to avoid scale conflict with OPO Transplants
     center_agg = center_agg.rename(columns={'Transplants': 'Center_Transplants'})
 
     us_states = alt.topo_feature('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json', 'states')
@@ -129,12 +116,6 @@ def run_viz_tab():
         height=500
     )
     
-    # SINGLE unified selection for both OPO visibility and lines
-    # value=[{'OPO': '__NONE__'}] is the initial/deselected state
-    # When __NONE__: all OPOs visible, no lines
-    # When real OPO: only that OPO visible + its lines
-    # clear='dblclick' resets back to __NONE__ (not empty!)
-    # Dynamic name ensures fresh selection state on reset
     selection_name = f'SelectOPO_{map_version}'
     store_name = f'{selection_name}_store'
     select_opo = alt.selection_point(
@@ -145,9 +126,6 @@ def run_viz_tab():
         value=[{'OPO': '__NONE__'}]  # Initial state: matches nothing real
     )
     
-    # OPO Points Layer
-    # When selection is __NONE__: show all (via OR condition with datum.OPO != '')
-    # When selection is real OPO: show only that OPO
     opo_points = alt.Chart(opo_agg).mark_circle(
         strokeWidth=1.5,
         stroke='white'
@@ -160,8 +138,6 @@ def run_viz_tab():
         color=alt.Color('DCU_Rate:Q',
                         scale=alt.Scale(domain=[0, 0.5, 1], range=['#2166ac', '#9970ab', '#b2182b']),
                         legend=alt.Legend(title='DCU-era donor', format='.0%', orient='right', direction='vertical', offset=10, legendY=200)),
-        # Show all OPOs when: store is empty OR value is __NONE__
-        # Show only matching OPO when: store has a real OPO value
         opacity=alt.condition(
             f"length(data('{store_name}')) == 0 || data('{store_name}')[0].values[0] == '__NONE__' || datum.OPO == data('{store_name}')[0].values[0]",
             alt.value(0.75),  # Semi-transparent when visible
@@ -176,8 +152,6 @@ def run_viz_tab():
         select_opo
     )
     
-    # Connection lines from OPO to Centers - Hidden by default
-    # Only show when selection is NOT __NONE__ and matches this OPO
     lines = alt.Chart(conn_agg).mark_rule(
         color='orange', 
         strokeWidth=2,
@@ -193,8 +167,6 @@ def run_viz_tab():
         f"length(data('{store_name}')) > 0 && data('{store_name}')[0].values[0] != '__NONE__' && datum.OPO == data('{store_name}')[0].values[0]"
     )
     
-    # Transplant center points (triangles) - Hidden by default
-    # Same filter logic as lines
     center_points = alt.Chart(center_agg).mark_point(
         shape='triangle',
         filled=True,
@@ -224,18 +196,14 @@ def run_viz_tab():
         f"length(data('{store_name}')) > 0 && data('{store_name}')[0].values[0] != '__NONE__' && datum.OPO == data('{store_name}')[0].values[0]"
     )
     
-    # Combine and RESOLVE SCALE independently
-    # This prevents OPO size settings from affecting Center size settings
     map_chart = (background + opo_points + lines + center_points).resolve_scale(size='independent')
     
-    # Reset Map button - increments counter which changes selection name on rerun
     col_reset, col_spacer = st.columns([1, 5])
     with col_reset:
         if st.button("🔄 Reset Map", key="reset_map_btn"):
             st.session_state.map_reset_counter += 1
             st.rerun()
     
-    # Use counter in key to force chart re-render on reset
     st.altair_chart(map_chart, use_container_width=True, key=f"opo_map_{map_version}")
     
     # Summary statistics
@@ -259,24 +227,19 @@ def run_survival_tab():
 
     all_opos = sorted(survival_data[survival_data['Group'] != 'Nationwide']['Group'].unique())
     
-    # Initialize session state for selected OPOs
     if 'selected_opos_survival' not in st.session_state:
         st.session_state.selected_opos_survival = []
-    
-    # --- OPO Selection Map using Plotly ---
+        
     st.subheader("Select OPOs for Survival Analysis")
     st.write("**Click on OPO dots on the map to select/deselect. Green = selected, Blue = unselected.**")
     
-    # Get OPO coordinates from map_data (from Tab1)
     if not map_data.empty:
-        # Aggregate unique OPO locations from map_data
         opo_locations = map_data.groupby('OPO').agg({
             'OPO_Lat': 'first',
             'OPO_Lon': 'first',
             'Count': 'sum'
         }).reset_index().rename(columns={'Count': 'Transplants'})
         
-        # Filter to only OPOs that exist in survival data
         opo_locations = opo_locations[opo_locations['OPO'].isin(all_opos)]
         
         if len(opo_locations) > 0:
@@ -323,7 +286,6 @@ def run_survival_tab():
                 dragmode=False  # Disable drag/pan
             )
             
-            # Display the map with click event handling (zoom/pan disabled)
             config = {'scrollZoom': False, 'displayModeBar': False}
             event = st.plotly_chart(fig, use_container_width=True, on_select="rerun", key="survival_plotly_map", config=config)
             
