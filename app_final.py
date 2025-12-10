@@ -170,6 +170,8 @@ def run_viz_tab():
     )
     
     # Connection lines from OPO to Centers - Hidden by default
+    # Use Vega expression to check: selection store must be non-empty AND contain a real OPO (not __NONE__)
+    # This handles: initial load (has __NONE__), selection (has real OPO), and deselection (empty store)
     lines = alt.Chart(conn_agg).mark_rule(
         color='orange', 
         strokeWidth=2, 
@@ -181,10 +183,12 @@ def run_viz_tab():
         latitude2='Center_Lat:Q',
         detail='OPO:N'
     ).transform_filter(
-        select_lines
+        # Only show when: store is non-empty AND first item's OPO matches this row's OPO AND it's not __NONE__
+        "length(data('SelectLines_store')) > 0 && data('SelectLines_store')[0].OPO != '__NONE__' && data('SelectLines_store')[0].OPO == datum.OPO"
     )
     
     # Transplant center points (triangles) - Hidden by default
+    # Same filter logic as lines
     center_points = alt.Chart(center_agg).mark_point(
         shape='triangle',
         filled=True,
@@ -210,7 +214,8 @@ def run_viz_tab():
             alt.Tooltip('OPO:N', title='OPO')
         ]
     ).transform_filter(
-        select_lines
+        # Only show when: store is non-empty AND first item's OPO matches this row's OPO AND it's not __NONE__
+        "length(data('SelectLines_store')) > 0 && data('SelectLines_store')[0].OPO != '__NONE__' && data('SelectLines_store')[0].OPO == datum.OPO"
     )
     
     # Combine and RESOLVE SCALE independently
