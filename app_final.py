@@ -134,13 +134,16 @@ def run_viz_tab():
         name='SelectOPO'
     )
     
-    # Selection for lines and centers visibility (empty='none' -> hidden by default)
+    # Selection for lines and centers visibility
+    # IMPORTANT: Use value=[{'OPO': '__NONE__'}] instead of empty='none' 
+    # because empty='none' doesn't work on Streamlit Cloud
+    # The initial value '__NONE__' won't match any real OPO, so lines are hidden by default
     select_lines = alt.selection_point(
         fields=['OPO'], 
         on='click', 
-        empty='none',
         clear='dblclick',
-        name='SelectLines'
+        name='SelectLines',
+        value=[{'OPO': '__NONE__'}]
     )
     
     # OPO Points Layer
