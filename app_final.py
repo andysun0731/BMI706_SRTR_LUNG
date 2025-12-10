@@ -152,9 +152,10 @@ def run_viz_tab():
         color=alt.Color('DCU_Rate:Q',
                         scale=alt.Scale(domain=[0, 0.5, 1], range=['#2166ac', '#9970ab', '#b2182b']),
                         legend=alt.Legend(title='DCU-era donor', format='.0%', orient='right', direction='vertical', offset=10, legendY=200)),
-        # Show all OPOs when selection is __NONE__, only selected when real OPO
+        # Show all OPOs when: store is empty OR value is __NONE__
+        # Show only matching OPO when: store has a real OPO value
         opacity=alt.condition(
-            "data('SelectOPO_store')[0].values[0] == '__NONE__' || datum.OPO == data('SelectOPO_store')[0].values[0]",
+            "length(data('SelectOPO_store')) == 0 || data('SelectOPO_store')[0].values[0] == '__NONE__' || datum.OPO == data('SelectOPO_store')[0].values[0]",
             alt.value(1),
             alt.value(0)
         ),
@@ -180,8 +181,8 @@ def run_viz_tab():
         latitude2='Center_Lat:Q',
         detail='OPO:N'
     ).transform_filter(
-        # Show only when: selection is not __NONE__ AND matches this OPO
-        "data('SelectOPO_store')[0].values[0] != '__NONE__' && datum.OPO == data('SelectOPO_store')[0].values[0]"
+        # Show only when: store is non-empty AND value is not __NONE__ AND matches this OPO
+        "length(data('SelectOPO_store')) > 0 && data('SelectOPO_store')[0].values[0] != '__NONE__' && datum.OPO == data('SelectOPO_store')[0].values[0]"
     )
     
     # Transplant center points (triangles) - Hidden by default
@@ -211,8 +212,8 @@ def run_viz_tab():
             alt.Tooltip('OPO:N', title='OPO')
         ]
     ).transform_filter(
-        # Show only when: selection is not __NONE__ AND matches this OPO
-        "data('SelectOPO_store')[0].values[0] != '__NONE__' && datum.OPO == data('SelectOPO_store')[0].values[0]"
+        # Show only when: store is non-empty AND value is not __NONE__ AND matches this OPO
+        "length(data('SelectOPO_store')) > 0 && data('SelectOPO_store')[0].values[0] != '__NONE__' && datum.OPO == data('SelectOPO_store')[0].values[0]"
     )
     
     # Combine and RESOLVE SCALE independently
