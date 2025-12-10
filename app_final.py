@@ -164,7 +164,7 @@ def run_viz_tab():
         # Show only matching OPO when: store has a real OPO value
         opacity=alt.condition(
             f"length(data('{store_name}')) == 0 || data('{store_name}')[0].values[0] == '__NONE__' || datum.OPO == data('{store_name}')[0].values[0]",
-            alt.value(1),
+            alt.value(0.75),  # Semi-transparent when visible
             alt.value(0)
         ),
         tooltip=[
