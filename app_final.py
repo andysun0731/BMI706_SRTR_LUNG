@@ -138,10 +138,11 @@ def run_viz_tab():
     # IMPORTANT: Use value=[{'OPO': '__NONE__'}] instead of empty='none' 
     # because empty='none' doesn't work on Streamlit Cloud
     # The initial value '__NONE__' won't match any real OPO, so lines are hidden by default
+    # toggle='true' means clicking same OPO again deselects (but value stays as list, not empty)
     select_lines = alt.selection_point(
         fields=['OPO'], 
         on='click', 
-        clear='dblclick',
+        toggle='true',
         name='SelectLines',
         value=[{'OPO': '__NONE__'}]
     )
@@ -170,11 +171,13 @@ def run_viz_tab():
     )
     
     # Connection lines from OPO to Centers - Hidden by default
-    # Use Vega expression to check: selection store must be non-empty AND contain a real OPO (not __NONE__)
-    # This handles: initial load (has __NONE__), selection (has real OPO), and deselection (empty store)
+    # transform_filter with select_lines: filters to matching OPOs
+    # Initial value '__NONE__' doesn't match any real OPO, so nothing shows initially
+    # When an OPO is clicked, it replaces __NONE__ with the real OPO name
+    # When cleared (dblclick), the store becomes empty and filter passes nothing
     lines = alt.Chart(conn_agg).mark_rule(
         color='orange', 
-        strokeWidth=2, 
+        strokeWidth=2,
         opacity=0.6
     ).encode(
         longitude='OPO_Lon:Q',
@@ -183,12 +186,10 @@ def run_viz_tab():
         latitude2='Center_Lat:Q',
         detail='OPO:N'
     ).transform_filter(
-        # Only show when: store is non-empty AND first item's OPO matches this row's OPO AND it's not __NONE__
-        "length(data('SelectLines_store')) > 0 && data('SelectLines_store')[0].OPO != '__NONE__' && data('SelectLines_store')[0].OPO == datum.OPO"
+        select_lines
     )
     
     # Transplant center points (triangles) - Hidden by default
-    # Same filter logic as lines
     center_points = alt.Chart(center_agg).mark_point(
         shape='triangle',
         filled=True,
@@ -214,8 +215,7 @@ def run_viz_tab():
             alt.Tooltip('OPO:N', title='OPO')
         ]
     ).transform_filter(
-        # Only show when: store is non-empty AND first item's OPO matches this row's OPO AND it's not __NONE__
-        "length(data('SelectLines_store')) > 0 && data('SelectLines_store')[0].OPO != '__NONE__' && data('SelectLines_store')[0].OPO == datum.OPO"
+        select_lines
     )
     
     # Combine and RESOLVE SCALE independently
