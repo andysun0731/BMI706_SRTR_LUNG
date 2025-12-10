@@ -86,6 +86,11 @@ def run_viz_tab():
     
     st.write("Dot size represents the number of transplants. **Click on an OPO** to see its connections to transplant centers.")
     
+    # Initialize reset counter for the Reset Map button
+    if 'map_reset_counter' not in st.session_state:
+        st.session_state.map_reset_counter = 0
+    map_version = st.session_state.map_reset_counter
+    
     # Filter data by year-month range
     filtered = map_data_local[(map_data_local['YearMonthNum'] >= start_ym_num) & (map_data_local['YearMonthNum'] <= end_ym_num)]
     
@@ -129,11 +134,14 @@ def run_viz_tab():
     # When __NONE__: all OPOs visible, no lines
     # When real OPO: only that OPO visible + its lines
     # clear='dblclick' resets back to __NONE__ (not empty!)
+    # Dynamic name ensures fresh selection state on reset
+    selection_name = f'SelectOPO_{map_version}'
+    store_name = f'{selection_name}_store'
     select_opo = alt.selection_point(
         fields=['OPO'], 
         on='click', 
         clear='dblclick',
-        name='SelectOPO',
+        name=selection_name,
         value=[{'OPO': '__NONE__'}]  # Initial state: matches nothing real
     )
     
@@ -155,7 +163,7 @@ def run_viz_tab():
         # Show all OPOs when: store is empty OR value is __NONE__
         # Show only matching OPO when: store has a real OPO value
         opacity=alt.condition(
-            "length(data('SelectOPO_store')) == 0 || data('SelectOPO_store')[0].values[0] == '__NONE__' || datum.OPO == data('SelectOPO_store')[0].values[0]",
+            f"length(data('{store_name}')) == 0 || data('{store_name}')[0].values[0] == '__NONE__' || datum.OPO == data('{store_name}')[0].values[0]",
             alt.value(1),
             alt.value(0)
         ),
@@ -182,7 +190,7 @@ def run_viz_tab():
         detail='OPO:N'
     ).transform_filter(
         # Show only when: store is non-empty AND value is not __NONE__ AND matches this OPO
-        "length(data('SelectOPO_store')) > 0 && data('SelectOPO_store')[0].values[0] != '__NONE__' && datum.OPO == data('SelectOPO_store')[0].values[0]"
+        f"length(data('{store_name}')) > 0 && data('{store_name}')[0].values[0] != '__NONE__' && datum.OPO == data('{store_name}')[0].values[0]"
     )
     
     # Transplant center points (triangles) - Hidden by default
@@ -213,17 +221,14 @@ def run_viz_tab():
         ]
     ).transform_filter(
         # Show only when: store is non-empty AND value is not __NONE__ AND matches this OPO
-        "length(data('SelectOPO_store')) > 0 && data('SelectOPO_store')[0].values[0] != '__NONE__' && datum.OPO == data('SelectOPO_store')[0].values[0]"
+        f"length(data('{store_name}')) > 0 && data('{store_name}')[0].values[0] != '__NONE__' && datum.OPO == data('{store_name}')[0].values[0]"
     )
     
     # Combine and RESOLVE SCALE independently
     # This prevents OPO size settings from affecting Center size settings
     map_chart = (background + opo_points + lines + center_points).resolve_scale(size='independent')
     
-    # Reset Map button - uses session state to force chart re-render
-    if 'map_reset_counter' not in st.session_state:
-        st.session_state.map_reset_counter = 0
-    
+    # Reset Map button - increments counter which changes selection name on rerun
     col_reset, col_spacer = st.columns([1, 5])
     with col_reset:
         if st.button("🔄 Reset Map", key="reset_map_btn"):
@@ -231,7 +236,7 @@ def run_viz_tab():
             st.rerun()
     
     # Use counter in key to force chart re-render on reset
-    st.altair_chart(map_chart, use_container_width=True, key=f"opo_map_{st.session_state.map_reset_counter}")
+    st.altair_chart(map_chart, use_container_width=True, key=f"opo_map_{map_version}")
     
     # Summary statistics
     col1, col2, col3 = st.columns(3)
