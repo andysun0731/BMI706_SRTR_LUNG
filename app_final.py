@@ -220,7 +220,18 @@ def run_viz_tab():
     # This prevents OPO size settings from affecting Center size settings
     map_chart = (background + opo_points + lines + center_points).resolve_scale(size='independent')
     
-    st.altair_chart(map_chart, use_container_width=True)
+    # Reset Map button - uses session state to force chart re-render
+    if 'map_reset_counter' not in st.session_state:
+        st.session_state.map_reset_counter = 0
+    
+    col_reset, col_spacer = st.columns([1, 5])
+    with col_reset:
+        if st.button("🔄 Reset Map", key="reset_map_btn"):
+            st.session_state.map_reset_counter += 1
+            st.rerun()
+    
+    # Use counter in key to force chart re-render on reset
+    st.altair_chart(map_chart, use_container_width=True, key=f"opo_map_{st.session_state.map_reset_counter}")
     
     # Summary statistics
     col1, col2, col3 = st.columns(3)
