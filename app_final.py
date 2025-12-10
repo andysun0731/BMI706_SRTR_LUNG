@@ -124,30 +124,22 @@ def run_viz_tab():
         height=500
     )
     
-    # Selection for OPO dots visibility (empty='all' -> all visible by default)
-    # clear='dblclick' means single-click on empty space won't deselect, double-click will
+    # SINGLE unified selection for both OPO visibility and lines
+    # value=[{'OPO': '__NONE__'}] is the initial/deselected state
+    # When __NONE__: all OPOs visible, no lines
+    # When real OPO: only that OPO visible + its lines
+    # clear='dblclick' resets back to __NONE__ (not empty!)
     select_opo = alt.selection_point(
         fields=['OPO'], 
         on='click', 
-        empty='all',
         clear='dblclick',
-        name='SelectOPO'
-    )
-    
-    # Selection for lines and centers visibility
-    # IMPORTANT: Use value=[{'OPO': '__NONE__'}] instead of empty='none' 
-    # because empty='none' doesn't work on Streamlit Cloud
-    # The initial value '__NONE__' won't match any real OPO, so lines are hidden by default
-    # toggle='true' means clicking same OPO again deselects (but value stays as list, not empty)
-    select_lines = alt.selection_point(
-        fields=['OPO'], 
-        on='click', 
-        toggle='true',
-        name='SelectLines',
-        value=[{'OPO': '__NONE__'}]
+        name='SelectOPO',
+        value=[{'OPO': '__NONE__'}]  # Initial state: matches nothing real
     )
     
     # OPO Points Layer
+    # When selection is __NONE__: show all (via OR condition with datum.OPO != '')
+    # When selection is real OPO: show only that OPO
     opo_points = alt.Chart(opo_agg).mark_circle(
         strokeWidth=1.5,
         stroke='white'
@@ -160,21 +152,23 @@ def run_viz_tab():
         color=alt.Color('DCU_Rate:Q',
                         scale=alt.Scale(domain=[0, 0.5, 1], range=['#2166ac', '#9970ab', '#b2182b']),
                         legend=alt.Legend(title='DCU-era donor', format='.0%', orient='right', direction='vertical', offset=10, legendY=200)),
-        opacity=alt.condition(select_opo, alt.value(1), alt.value(0)),
+        # Show all OPOs when selection is __NONE__, only selected when real OPO
+        opacity=alt.condition(
+            "data('SelectOPO_store')[0].values[0] == '__NONE__' || datum.OPO == data('SelectOPO_store')[0].values[0]",
+            alt.value(1),
+            alt.value(0)
+        ),
         tooltip=[
             alt.Tooltip('OPO:N', title='OPO'),
             alt.Tooltip('Transplants:Q', title='Total Transplants'),
             alt.Tooltip('DCU_Rate:Q', title='DCU-era donor', format='.2%')
         ]
     ).add_params(
-        select_opo, select_lines
+        select_opo
     )
     
     # Connection lines from OPO to Centers - Hidden by default
-    # transform_filter with select_lines: filters to matching OPOs
-    # Initial value '__NONE__' doesn't match any real OPO, so nothing shows initially
-    # When an OPO is clicked, it replaces __NONE__ with the real OPO name
-    # When cleared (dblclick), the store becomes empty and filter passes nothing
+    # Only show when selection is NOT __NONE__ and matches this OPO
     lines = alt.Chart(conn_agg).mark_rule(
         color='orange', 
         strokeWidth=2,
@@ -186,10 +180,12 @@ def run_viz_tab():
         latitude2='Center_Lat:Q',
         detail='OPO:N'
     ).transform_filter(
-        select_lines
+        # Show only when: selection is not __NONE__ AND matches this OPO
+        "data('SelectOPO_store')[0].values[0] != '__NONE__' && datum.OPO == data('SelectOPO_store')[0].values[0]"
     )
     
     # Transplant center points (triangles) - Hidden by default
+    # Same filter logic as lines
     center_points = alt.Chart(center_agg).mark_point(
         shape='triangle',
         filled=True,
@@ -215,7 +211,8 @@ def run_viz_tab():
             alt.Tooltip('OPO:N', title='OPO')
         ]
     ).transform_filter(
-        select_lines
+        # Show only when: selection is not __NONE__ AND matches this OPO
+        "data('SelectOPO_store')[0].values[0] != '__NONE__' && datum.OPO == data('SelectOPO_store')[0].values[0]"
     )
     
     # Combine and RESOLVE SCALE independently
