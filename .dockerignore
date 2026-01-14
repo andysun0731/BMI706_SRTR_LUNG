@@ -1,0 +1,10 @@
+.git
+.gitignore
+.devcontainer
+__pycache__
+*.pyc
+*.sav
+*.mov
+precompute_final.py
+.DS_Store
+README.md
