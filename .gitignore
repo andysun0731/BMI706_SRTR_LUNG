@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Build outputs
+.next/
+build/
+dist/
+*.egg-info/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.local
+
+# SSH keys
+*.pem
+
+# Large files
+*.mov
+*.mp4
+*.avi
+
+# Raw data (keep CSVs but exclude raw SPSS files)
+*.sav
+*.spss
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Misc
+.cache/
+*.tmp

@@ -1,10 +1,121 @@
-.git
-.gitignore
-.devcontainer
-__pycache__
-*.pyc
-*.sav
-*.mov
-precompute_final.py
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Environment variables
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
 .DS_Store
-README.md
+Thumbs.db
+
+# Node
+node_modules/
+.next/
+.npm
+npm-debug.log*
+
+# Git
+.git/
+.gitignore
+
+# Raw data files (not needed for deployment)
+*.sav
+*.spss
+
+# Video files
+*.mov
+*.mp4
+
+# Dev containers
+.devcontainer/
+
+# Local config
+*.local
+
+# Precompute script (not needed in deployment)
+precompute*.py
+
+# Old streamlit app
+app_final.py

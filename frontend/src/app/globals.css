@@ -1,0 +1,120 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Apple-inspired styling */
+:root {
+    --apple-gray-50: #fbfbfd;
+    --apple-gray-100: #f5f5f7;
+    --apple-gray-200: #e8e8ed;
+    --apple-gray-300: #d2d2d7;
+    --apple-gray-400: #86868b;
+    --apple-gray-500: #6e6e73;
+    --apple-gray-600: #424245;
+    --apple-gray-700: #1d1d1f;
+    --apple-blue: #0071e3;
+    --apple-blue-hover: #0077ed;
+}
+
+* {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+    background-color: var(--apple-gray-50);
+    color: var(--apple-gray-700);
+    letter-spacing: -0.01em;
+}
+
+/* Apple-style cards */
+.apple-card {
+    background: white;
+    border-radius: 18px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+}
+
+.apple-card:hover {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+    transform: translateY(-2px);
+}
+
+/* Apple-style buttons */
+.apple-button {
+    background: var(--apple-blue);
+    color: white;
+    border-radius: 980px;
+    padding: 8px 20px;
+    font-size: 14px;
+    font-weight: 400;
+    transition: all 0.2s ease;
+}
+
+.apple-button:hover {
+    background: var(--apple-blue-hover);
+}
+
+.apple-button-secondary {
+    background: var(--apple-gray-100);
+    color: var(--apple-gray-700);
+    border-radius: 980px;
+    padding: 8px 20px;
+    font-size: 14px;
+    font-weight: 400;
+    transition: all 0.2s ease;
+}
+
+.apple-button-secondary:hover {
+    background: var(--apple-gray-200);
+}
+
+/* Smooth animations */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.5s ease forwards;
+}
+
+/* Custom scrollbar - Apple style */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--apple-gray-300);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--apple-gray-400);
+}
+
+/* Typography */
+h1,
+h2,
+h3 {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+/* Selection color */
+::selection {
+    background: #b4d5ff;
+}
