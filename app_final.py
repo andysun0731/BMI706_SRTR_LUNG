@@ -30,15 +30,20 @@ def run_viz_tab():
         st.error("Map data not found. Run precompute.py first.")
         return
 
+    # Initialize session state
+    if 'selected_opo_map' not in st.session_state:
+        st.session_state.selected_opo_map = None
+    if 'map_click_counter' not in st.session_state:
+        st.session_state.map_click_counter = 0
+
+    # Data preparation
     if 'Month' in map_data.columns:
         map_data_local = map_data.copy()
     else:
-        # Fallback for old data without Month
         map_data_local = map_data.copy()
         map_data_local['Month'] = 1
     
     map_data_local['YearMonthNum'] = map_data_local['Year'] * 100 + map_data_local['Month']
-    
     all_ym_nums = sorted(map_data_local['YearMonthNum'].unique())
     
     month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -50,9 +55,9 @@ def run_viz_tab():
     min_ym = min(all_ym_nums)
     max_ym = max(all_ym_nums)
     
+    # CAS Implementation marker
     cas_ym = 202303
     if min_ym <= cas_ym <= max_ym:
-        # Calculate relative position for the marker
         total_range = len(all_ym_nums)
         cas_index = all_ym_nums.index(cas_ym) if cas_ym in all_ym_nums else -1
         if cas_index >= 0:
@@ -69,6 +74,7 @@ def run_viz_tab():
                 unsafe_allow_html=True
             )
     
+    # Date range selector
     selected_range = st.select_slider(
         "Select Date Range",
         options=all_ym_nums,
@@ -77,14 +83,11 @@ def run_viz_tab():
     )
     start_ym_num, end_ym_num = selected_range
     
-    st.write("Dot size represents the number of transplants. **Click on an OPO** to see its connections to transplant centers.")
+    # Filter data
+    filtered = map_data_local[(map_data_local['YearMonthNum'] >= start_ym_num) & 
+                               (map_data_local['YearMonthNum'] <= end_ym_num)]
     
-    if 'map_reset_counter' not in st.session_state:
-        st.session_state.map_reset_counter = 0
-    map_version = st.session_state.map_reset_counter
-    
-    filtered = map_data_local[(map_data_local['YearMonthNum'] >= start_ym_num) & (map_data_local['YearMonthNum'] <= end_ym_num)]
-    
+    # Aggregate data
     conn_agg = filtered.groupby(['OPO', 'Center', 'OPO_Lat', 'OPO_Lon', 'Center_Lat', 'Center_Lon']).agg({
         'Count': 'sum',
         'DCU_Rate': 'mean',
@@ -104,109 +107,226 @@ def run_viz_tab():
         'Center_Lat': 'first',
         'Center_Lon': 'first',
         'Center_Zip': 'first'
-    }).reset_index()
-    center_agg = center_agg.rename(columns={'Transplants': 'Center_Transplants'})
-
-    us_states = alt.topo_feature('https://cdn.jsdelivr.net/npm/us-atlas@3/states-10m.json', 'states')
-    background = alt.Chart(us_states).mark_geoshape(
-        fill='lightgray', 
-        stroke='white'
-    ).project('albersUsa').properties(
-        width=900,
-        height=500
-    )
+    }).reset_index().rename(columns={'Transplants': 'Center_Transplants'})
     
-    selection_name = f'SelectOPO_{map_version}'
-    store_name = f'{selection_name}_store'
-    select_opo = alt.selection_point(
-        fields=['OPO'], 
-        on='click', 
-        clear='dblclick',
-        name=selection_name,
-        value=[{'OPO': '__NONE__'}]  # Initial state: matches nothing real
-    )
-    
-    opo_points = alt.Chart(opo_agg).mark_circle(
-        strokeWidth=1.5,
-        stroke='white'
-    ).encode(
-        longitude='OPO_Lon:Q',
-        latitude='OPO_Lat:Q',
-        size=alt.Size('Transplants:Q', 
-                      scale=alt.Scale(type='linear', domain=[0, 1000], range=[100, 2000]),
-                      legend=None),
-        color=alt.Color('DCU_Rate:Q',
-                        scale=alt.Scale(domain=[0, 0.5, 1], range=['#2166ac', '#9970ab', '#b2182b']),
-                        legend=alt.Legend(title='DCU-era donor', format='.0%', orient='right', direction='vertical', offset=10, legendY=200)),
-        opacity=alt.condition(
-            f"length(data('{store_name}')) == 0 || data('{store_name}')[0].values[0] == '__NONE__' || datum.OPO == data('{store_name}')[0].values[0]",
-            alt.value(0.75),  # Semi-transparent when visible
-            alt.value(0)
-        ),
-        tooltip=[
-            alt.Tooltip('OPO:N', title='OPO'),
-            alt.Tooltip('Transplants:Q', title='Total Transplants'),
-            alt.Tooltip('DCU_Rate:Q', title='DCU-era donor', format='.2%')
-        ]
-    ).add_params(
-        select_opo
-    )
-    
-    lines = alt.Chart(conn_agg).mark_rule(
-        color='orange', 
-        strokeWidth=2,
-        opacity=0.6
-    ).encode(
-        longitude='OPO_Lon:Q',
-        latitude='OPO_Lat:Q',
-        longitude2='Center_Lon:Q',
-        latitude2='Center_Lat:Q',
-        detail='OPO:N'
-    ).transform_filter(
-        # Show only when: store is non-empty AND value is not __NONE__ AND matches this OPO
-        f"length(data('{store_name}')) > 0 && data('{store_name}')[0].values[0] != '__NONE__' && datum.OPO == data('{store_name}')[0].values[0]"
-    )
-    
-    center_points = alt.Chart(center_agg).mark_point(
-        shape='triangle',
-        filled=True,
-        color='gold',
-        strokeWidth=1,
-        stroke='darkorange'
-    ).encode(
-        longitude='Center_Lon:Q',
-        latitude='Center_Lat:Q',
-        size=alt.Size('Center_Transplants:Q', 
-                      scale=alt.Scale(
-                          type='pow',  # Power scale
-                          exponent=0.8,
-                          domain=[0, 120],
-                          range=[10, 700]
-                      ), 
-                      legend=None),
-        detail='OPO:N',
-        tooltip=[
-            alt.Tooltip('Center:N', title='Transplant Center'),
-            alt.Tooltip('Center_Zip:N', title='ZIP Code'),
-            alt.Tooltip('Center_Transplants:Q', title='Transplants from OPO'),
-            alt.Tooltip('OPO:N', title='OPO')
-        ]
-    ).transform_filter(
-        # Show only when: store is non-empty AND value is not __NONE__ AND matches this OPO
-        f"length(data('{store_name}')) > 0 && data('{store_name}')[0].values[0] != '__NONE__' && datum.OPO == data('{store_name}')[0].values[0]"
-    )
-    
-    map_chart = (background + opo_points + lines + center_points).resolve_scale(size='independent')
-    
-    col_reset, col_spacer = st.columns([1, 5])
+    # Instructions and controls
+    col_inst, col_reset = st.columns([5, 1])
+    with col_inst:
+        if st.session_state.selected_opo_map:
+            st.info(f"**Selected OPO:** {st.session_state.selected_opo_map} — Click Clear or click again to deselect, or click another OPO to switch.")
+        else:
+            st.info("**Click on an OPO** to see its connections to transplant centers.")
     with col_reset:
-        if st.button("🔄 Reset Map", key="reset_map_btn"):
-            st.session_state.map_reset_counter += 1
-            st.rerun()
+        if st.button("🔄 Clear", key="reset_map_btn"):
+            st.session_state.selected_opo_map = None
+            st.rerun(scope="fragment")
     
-    st.altair_chart(map_chart, use_container_width=True, key=f"opo_map_{map_version}")
+    # Create placeholder for map
+    map_placeholder = st.empty()
+    
+    # Build the map
+    def create_map(opo_data, conn_data, center_data, selected_opo):
+        """Create Plotly map with OPO points, connections, and centers"""
+        fig = go.Figure()
+        
+        # Color mapping for DCU_Rate
+        def get_dcu_color(dcu_rate):
+            if dcu_rate <= 0.5:
+                t = dcu_rate / 0.5
+                r = int(33 + (153 - 33) * t)
+                g = int(102 + (112 - 102) * t)
+                b = int(172 + (171 - 172) * t)
+            else:
+                t = (dcu_rate - 0.5) / 0.5
+                r = int(153 + (178 - 153) * t)
+                g = int(112 + (24 - 112) * t)
+                b = int(171 + (43 - 171) * t)
+            return f'rgb({r},{g},{b})'
+        
+        # Prepare OPO display data
+        opo_display = opo_data.copy()
+        opo_display['Size'] = opo_display['Transplants'].apply(
+            lambda x: max(10, min(50, 10 + (x / 1000) * 40))
+        )
+        opo_display['Color'] = opo_display['DCU_Rate'].apply(get_dcu_color)
+        
+        # Set opacity: dim non-selected OPOs if one is selected
+        if selected_opo:
+            opo_display['Opacity'] = opo_display['OPO'].apply(
+                lambda x: 0.9 if x == selected_opo else 0.3
+            )
+        else:
+            opo_display['Opacity'] = 0.9
+        
+        # Add OPO markers
+        fig.add_trace(go.Scattergeo(
+            lon=opo_display['OPO_Lon'],
+            lat=opo_display['OPO_Lat'],
+            text=opo_display['OPO'],
+            customdata=opo_display[['OPO', 'Transplants', 'DCU_Rate']].values,
+            hovertemplate='<b>%{customdata[0]}</b><br>Total Transplants: %{customdata[1]}<br>DCU-era donor: %{customdata[2]:.2%}<extra></extra>',
+            mode='markers',
+            marker=dict(
+                size=opo_display['Size'],
+                color=opo_display['Color'],
+                line=dict(width=1.5, color='white'),
+                opacity=opo_display['Opacity'].tolist()
+            ),
+            showlegend=False
+        ))
+        
+        # Add connections and centers if an OPO is selected
+        if selected_opo:
+            selected_conn = conn_data[conn_data['OPO'] == selected_opo]
+            
+            # Helper function to adjust Hawaii coordinates for Albers USA projection
+            # Hawaii actual: ~lat 21, lon -157
+            # Hawaii visual position in Albers USA projection: approximately lat 26, lon -107
+            def adjust_coords_for_projection(lat, lon):
+                # Check if this is Hawaii (lat 19-23, lon -161 to -154)
+                if lat >= 19 and lat <= 23 and lon >= -161 and lon <= -154:
+                    # Transform to approximate visual position in Albers USA
+                    return 27.27, -107.45
+                return lat, lon
+            
+            # Connection lines
+            for _, row in selected_conn.iterrows():
+                opo_lat, opo_lon = adjust_coords_for_projection(row['OPO_Lat'], row['OPO_Lon'])
+                center_lat, center_lon = adjust_coords_for_projection(row['Center_Lat'], row['Center_Lon'])
+                
+                fig.add_trace(go.Scattergeo(
+                    lon=[opo_lon, center_lon],
+                    lat=[opo_lat, center_lat],
+                    mode='lines',
+                    line=dict(width=2, color='orange'),
+                    opacity=0.6,
+                    showlegend=False,
+                    hoverinfo='skip'
+                ))
+            
+            # Transplant centers
+            selected_centers = center_data[center_data['OPO'] == selected_opo].copy()
+            selected_centers['Size'] = selected_centers['Center_Transplants'].apply(
+                lambda x: max(8, min(35, 8 + (x / 120) ** 0.8 * 27))
+            )
+            
+            fig.add_trace(go.Scattergeo(
+                lon=selected_centers['Center_Lon'],
+                lat=selected_centers['Center_Lat'],
+                text=selected_centers['Center'],
+                customdata=selected_centers[['Center', 'Center_Zip', 'Center_Transplants', 'OPO']].values,
+                hovertemplate='<b>%{customdata[0]}</b><br>ZIP: %{customdata[1]}<br>Transplants from OPO: %{customdata[2]}<br>OPO: %{customdata[3]}<extra></extra>',
+                mode='markers',
+                marker=dict(
+                    symbol='triangle-up',
+                    size=selected_centers['Size'],
+                    color='gold',
+                    line=dict(width=1, color='darkorange')
+                ),
+                showlegend=False,
+                hoverinfo='text',
+                selected=dict(marker=dict(opacity=1)),
+                unselected=dict(marker=dict(opacity=1))
+            ))
+        
+        # Add colorbar
+        fig.add_trace(go.Scattergeo(
+            lon=[None], lat=[None],
+            mode='markers',
+            marker=dict(
+                colorscale=[[0, '#2166ac'], [0.5, '#9970ab'], [1, '#b2182b']],
+                cmin=0, cmax=1,
+                colorbar=dict(title="DCU-era donor", tickformat='.0%', x=1.02, y=0.5, len=0.5),
+                showscale=True
+            ),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        # Configure map layout
+        fig.update_geos(
+            scope='usa',
+            showland=True, landcolor='lightgray',
+            showlakes=True, lakecolor='white',
+            showcountries=False,
+            showcoastlines=True, coastlinecolor='white',
+            projection_type='albers usa'
+        )
+        
+        fig.update_layout(
+            height=500,
+            margin=dict(l=0, r=0, t=0, b=0),
+            geo=dict(bgcolor='rgba(0,0,0,0)'),
+            dragmode=False,
+            hovermode='closest'
+        )
+        
+        return fig
+    
+    # Create and display the map
+    map_fig = create_map(opo_agg, conn_agg, center_agg, st.session_state.selected_opo_map)
+    
+    config = {
+        'displayModeBar': False,
+        'scrollZoom': False,
+        'doubleClick': False,
+        'staticPlot': False,
+        'editable': False
+    }
+    
+    with map_placeholder:
+        event = st.plotly_chart(map_fig, use_container_width=True, on_select="rerun", key=f"opo_map_interactive_{st.session_state.map_click_counter}", config=config)
+    
+    # Handle click events - only process clicks on OPO markers (trace 0)
+    if event and 'selection' in event and 'points' in event['selection']:
+        points = event['selection']['points']
+        if points and len(points) > 0:
+            # Get trace index and point index
+            trace_idx = points[0].get('curve_number', None)
+            clicked_idx = points[0].get('point_index', None)
+            
+            # If clicked on OPO markers (trace 0)
+            if trace_idx == 0 and clicked_idx is not None and clicked_idx < len(opo_agg):
+                clicked_opo = opo_agg.iloc[clicked_idx]['OPO']
+                
+                # Toggle: if clicking the same OPO, deselect it; otherwise select the new one
+                if st.session_state.selected_opo_map == clicked_opo:
+                    st.session_state.selected_opo_map = None
+                else:
+                    st.session_state.selected_opo_map = clicked_opo
+                
+                st.session_state.map_click_counter += 1
+                st.rerun(scope="fragment")
+            
+            # If clicked on transplant center (triangle), check if it overlaps with an OPO
+            elif trace_idx is not None and trace_idx > 0 and st.session_state.selected_opo_map:
+                # Get the clicked point's coordinates
+                clicked_point = points[0]
+                clicked_lon = clicked_point.get('lon', None)
+                clicked_lat = clicked_point.get('lat', None)
+                
+                if clicked_lon is not None and clicked_lat is not None:
+                    # Check if this location matches any OPO location (with small tolerance)
+                    tolerance = 0.5  # degrees of lat/lon
+                    for idx, opo_row in opo_agg.iterrows():
+                        opo_lon = opo_row['OPO_Lon']
+                        opo_lat = opo_row['OPO_Lat']
+                        
+                        # Check if within tolerance (overlapping)
+                        if abs(clicked_lon - opo_lon) < tolerance and abs(clicked_lat - opo_lat) < tolerance:
+                            # Found overlapping OPO, toggle it
+                            clicked_opo = opo_row['OPO']
+                            if st.session_state.selected_opo_map == clicked_opo:
+                                st.session_state.selected_opo_map = None
+                            else:
+                                st.session_state.selected_opo_map = clicked_opo
+                            st.session_state.map_click_counter += 1
+                            st.rerun(scope="fragment")
+                            break
+                    # If no OPO found nearby, do nothing (triangle click ignored)
     
     # Summary statistics
+    st.markdown("---")
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Number of OPOs", len(opo_agg))
