@@ -33,8 +33,7 @@ def run_viz_tab():
     # Initialize session state
     if 'selected_opo_map' not in st.session_state:
         st.session_state.selected_opo_map = None
-    if 'map_click_counter' not in st.session_state:
-        st.session_state.map_click_counter = 0
+
 
     # Data preparation
     if 'Month' in map_data.columns:
@@ -158,7 +157,7 @@ def run_viz_tab():
         else:
             opo_display['Opacity'] = 0.9
         
-        # Add OPO markers
+        # TRACE 0: OPO markers
         fig.add_trace(go.Scattergeo(
             lon=opo_display['OPO_Lon'],
             lat=opo_display['OPO_Lat'],
@@ -175,61 +174,74 @@ def run_viz_tab():
             showlegend=False
         ))
         
-        # Add connections and centers if an OPO is selected
+        # TRACE 1: Connection lines (Always calculate, but empty if no selection)
+        lons = []
+        lats = []
+        
         if selected_opo:
             selected_conn = conn_data[conn_data['OPO'] == selected_opo]
             
             # Helper function to adjust Hawaii coordinates for Albers USA projection
-            # Hawaii actual: ~lat 21, lon -157
-            # Hawaii visual position in Albers USA projection: approximately lat 26, lon -107
             def adjust_coords_for_projection(lat, lon):
-                # Check if this is Hawaii (lat 19-23, lon -161 to -154)
                 if lat >= 19 and lat <= 23 and lon >= -161 and lon <= -154:
-                    # Transform to approximate visual position in Albers USA
                     return 27.27, -107.45
                 return lat, lon
             
-            # Connection lines
             for _, row in selected_conn.iterrows():
                 opo_lat, opo_lon = adjust_coords_for_projection(row['OPO_Lat'], row['OPO_Lon'])
                 center_lat, center_lon = adjust_coords_for_projection(row['Center_Lat'], row['Center_Lon'])
+                lons.extend([opo_lon, center_lon, None])
+                lats.extend([opo_lat, center_lat, None])
                 
-                fig.add_trace(go.Scattergeo(
-                    lon=[opo_lon, center_lon],
-                    lat=[opo_lat, center_lat],
-                    mode='lines',
-                    line=dict(width=2, color='orange'),
-                    opacity=0.6,
-                    showlegend=False,
-                    hoverinfo='skip'
-                ))
+        fig.add_trace(go.Scattergeo(
+            lon=lons,
+            lat=lats,
+            mode='lines',
+            line=dict(width=2, color='orange'),
+            opacity=0.6,
+            showlegend=False,
+            hoverinfo='skip'
+        ))
             
-            # Transplant centers
-            selected_centers = center_data[center_data['OPO'] == selected_opo].copy()
-            selected_centers['Size'] = selected_centers['Center_Transplants'].apply(
-                lambda x: max(8, min(35, 8 + (x / 120) ** 0.8 * 27))
-            )
-            
-            fig.add_trace(go.Scattergeo(
-                lon=selected_centers['Center_Lon'],
-                lat=selected_centers['Center_Lat'],
-                text=selected_centers['Center'],
-                customdata=selected_centers[['Center', 'Center_Zip', 'Center_Transplants', 'OPO']].values,
-                hovertemplate='<b>%{customdata[0]}</b><br>ZIP: %{customdata[1]}<br>Transplants from OPO: %{customdata[2]}<br>OPO: %{customdata[3]}<extra></extra>',
-                mode='markers',
-                marker=dict(
-                    symbol='triangle-up',
-                    size=selected_centers['Size'],
-                    color='gold',
-                    line=dict(width=1, color='darkorange')
-                ),
-                showlegend=False,
-                hoverinfo='text',
-                selected=dict(marker=dict(opacity=1)),
-                unselected=dict(marker=dict(opacity=1))
-            ))
+        # TRACE 2: Transplant centers (Always calculate, but empty if no selection)
+        center_lons = []
+        center_lats = []
+        center_texts = []
+        center_customdata = []
+        center_sizes = []
         
-        # Add colorbar
+        if selected_opo:
+            selected_centers = center_data[center_data['OPO'] == selected_opo].copy()
+            if not selected_centers.empty:
+                selected_centers['Size'] = selected_centers['Center_Transplants'].apply(
+                    lambda x: max(8, min(35, 8 + (x / 120) ** 0.8 * 27))
+                )
+                center_lons = selected_centers['Center_Lon']
+                center_lats = selected_centers['Center_Lat']
+                center_texts = selected_centers['Center']
+                center_customdata = selected_centers[['Center', 'Center_Zip', 'Center_Transplants', 'OPO']].values
+                center_sizes = selected_centers['Size']
+
+        fig.add_trace(go.Scattergeo(
+            lon=center_lons,
+            lat=center_lats,
+            text=center_texts,
+            customdata=center_customdata,
+            hovertemplate='<b>%{customdata[0]}</b><br>ZIP: %{customdata[1]}<br>Transplants from OPO: %{customdata[2]}<br>OPO: %{customdata[3]}<extra></extra>' if len(center_lons) > 0 else '',
+            mode='markers',
+            marker=dict(
+                symbol='triangle-up',
+                size=center_sizes,
+                color='gold',
+                line=dict(width=1, color='darkorange')
+            ),
+            showlegend=False,
+            hoverinfo='text' if len(center_lons) > 0 else 'skip',
+            selected=dict(marker=dict(opacity=1)),
+            unselected=dict(marker=dict(opacity=1))
+        ))
+        
+        # TRACE 3: Colorbar (Always present)
         fig.add_trace(go.Scattergeo(
             lon=[None], lat=[None],
             mode='markers',
@@ -258,7 +270,8 @@ def run_viz_tab():
             margin=dict(l=0, r=0, t=0, b=0),
             geo=dict(bgcolor='rgba(0,0,0,0)'),
             dragmode=False,
-            hovermode='closest'
+            hovermode='closest',
+            uirevision='constant' # Vital for smooth updates
         )
         
         return fig
@@ -274,8 +287,8 @@ def run_viz_tab():
         'editable': False
     }
     
-    with map_placeholder:
-        event = st.plotly_chart(map_fig, use_container_width=True, on_select="rerun", key=f"opo_map_interactive_{st.session_state.map_click_counter}", config=config)
+    # Remove st.empty placeholder usage, just render directly
+    event = st.plotly_chart(map_fig, use_container_width=True, on_select="rerun", key="opo_map_interactive", config=config)
     
     # Handle click events - only process clicks on OPO markers (trace 0)
     if event and 'selection' in event and 'points' in event['selection']:
@@ -295,11 +308,10 @@ def run_viz_tab():
                 else:
                     st.session_state.selected_opo_map = clicked_opo
                 
-                st.session_state.map_click_counter += 1
                 st.rerun(scope="fragment")
             
-            # If clicked on transplant center (triangle), check if it overlaps with an OPO
-            elif trace_idx is not None and trace_idx > 0 and st.session_state.selected_opo_map:
+            # If clicked on transplant center (trace 2), check if it overlaps with an OPO
+            elif trace_idx == 2 and st.session_state.selected_opo_map:
                 # Get the clicked point's coordinates
                 clicked_point = points[0]
                 clicked_lon = clicked_point.get('lon', None)
@@ -320,7 +332,6 @@ def run_viz_tab():
                                 st.session_state.selected_opo_map = None
                             else:
                                 st.session_state.selected_opo_map = clicked_opo
-                            st.session_state.map_click_counter += 1
                             st.rerun(scope="fragment")
                             break
                     # If no OPO found nearby, do nothing (triangle click ignored)
