@@ -248,7 +248,15 @@ def run_viz_tab():
             marker=dict(
                 colorscale=[[0, '#2166ac'], [0.5, '#9970ab'], [1, '#b2182b']],
                 cmin=0, cmax=1,
-                colorbar=dict(title="DCU-era donor", tickformat='.0%', x=1.02, y=0.5, len=0.5),
+                colorbar=dict(
+                    title="DCU Available Time",
+                    tickformat='.0%',
+                    tick0=0,
+                    dtick=0.2,
+                    x=1.02,
+                    y=0.5,
+                    len=0.5
+                ),
                 showscale=True
             ),
             showlegend=False,
@@ -368,16 +376,16 @@ def run_survival_tab():
         opo_locations = map_data.groupby('OPO').agg({
             'OPO_Lat': 'first',
             'OPO_Lon': 'first',
-            'Count': 'sum'
+            'Count': 'sum',
+            'DCU_Rate': 'mean'
         }).reset_index().rename(columns={'Count': 'Transplants'})
         
         opo_locations = opo_locations[opo_locations['OPO'].isin(all_opos)]
         
         if len(opo_locations) > 0:
             
-            # Add selection status and colors
+            # Add selection status
             opo_locations['Selected'] = opo_locations['OPO'].isin(st.session_state.selected_opos_survival)
-            opo_locations['Color'] = opo_locations['Selected'].apply(lambda x: '#2ca02c' if x else '#1f77b4')
             opo_locations['Status'] = opo_locations['Selected'].apply(lambda x: 'Selected' if x else 'Click to select')
             
             # Create Plotly figure
@@ -388,14 +396,21 @@ def run_survival_tab():
                 lon=opo_locations['OPO_Lon'],
                 lat=opo_locations['OPO_Lat'],
                 text=opo_locations['OPO'],
-                customdata=opo_locations[['OPO', 'Transplants', 'Status']].values,
-                hovertemplate='<b>%{customdata[0]}</b><br>Transplants: %{customdata[1]}<br>%{customdata[2]}<extra></extra>',
+                customdata=opo_locations[['OPO', 'Transplants', 'DCU_Rate', 'Status']].values,
+                hovertemplate='<b>%{customdata[0]}</b><br>Transplants: %{customdata[1]}<br>DCU Available Time: %{customdata[2]:.1%}<br>%{customdata[3]}<extra></extra>',
                 mode='markers',
                 marker=dict(
                     size=opo_locations['Transplants'] / opo_locations['Transplants'].max() * 30 + 8,
-                    color=opo_locations['Color'],
-                    line=dict(width=1, color='white'),
-                    opacity=0.8
+                    color=opo_locations['DCU_Rate'].fillna(0),
+                    colorscale=[[0, '#2166ac'], [0.5, '#9970ab'], [1, '#b2182b']],
+                    cmin=0,
+                    cmax=1,
+                    colorbar=dict(title="DCU Available Time", tickformat=".0%", tick0=0, dtick=0.2),
+                    line=dict(
+                        width=opo_locations['Selected'].map(lambda x: 3 if x else 1),
+                        color=opo_locations['Selected'].map(lambda x: 'yellow' if x else 'white'),
+                    ),
+                    opacity=opo_locations['Selected'].map(lambda x: 1.0 if x else 0.8),
                 )
             ))
             
@@ -545,9 +560,39 @@ def run_survival_tab():
         st.subheader("Log-Rank Test Results")
         st.caption("P-values for each OPO compared against the rest of the nation (p < 0.05 highlighted in red)")
         stats = survival_stats[survival_stats['OPO'].isin(selected)].copy()
-        stats['Significant'] = stats['P_Value'].apply(lambda x: '✓' if x < 0.05 else '')
+        stats = stats.rename(columns={"P_Value": "P-value"})
+
+        surv_lookup = survival_data[survival_data['Group'].isin(selected + ['Nationwide'])].copy()
+        surv_lookup = surv_lookup[surv_lookup['GraftTime'] <= 1825]
+        surv_5yr = (
+            surv_lookup.sort_values('GraftTime')
+            .groupby('Group', as_index=False)
+            .tail(1)
+            .set_index('Group')
+        )
+        stats['5-year Graft Survival (95% CI)'] = stats['OPO'].map(
+            lambda opo: (
+                f"{surv_5yr.loc[opo, 'survival_prob']:.1%} "
+                f"({surv_5yr.loc[opo, 'ci_lower']:.1%}–{surv_5yr.loc[opo, 'ci_upper']:.1%})"
+                if opo in surv_5yr.index else "—"
+            )
+        )
+        national_5yr = "—"
+        if "Nationwide" in surv_5yr.index:
+            national_5yr = (
+                f"{surv_5yr.loc['Nationwide', 'survival_prob']:.1%} "
+                f"({surv_5yr.loc['Nationwide', 'ci_lower']:.1%}–{surv_5yr.loc['Nationwide', 'ci_upper']:.1%})"
+            )
+        stats = pd.concat(
+            [
+                pd.DataFrame([{"OPO": "Nationwide", "P-value": pd.NA, "5-year Graft Survival (95% CI)": national_5yr}]),
+                stats,
+            ],
+            ignore_index=True,
+        )
+        stats['Significant'] = stats['P-value'].apply(lambda x: '✓' if x < 0.05 else '')
         st.dataframe(
-            stats.style.map(lambda x: 'color: red; font-weight: bold' if isinstance(x, float) and x < 0.05 else '', subset=['P_Value']),
+            stats.style.map(lambda x: 'color: red; font-weight: bold' if isinstance(x, float) and x < 0.05 else '', subset=['P-value']),
             use_container_width=True
         )
 
@@ -555,7 +600,7 @@ def run_survival_tab():
 # --- TAB 3: Utilization ---
 @st.fragment
 def run_utilization_tab():
-    st.header("Donor Transplant Utilization")
+    st.header("Donor Lung Utilization")
 
     # ---- Load donor utilization dataset ----
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -601,23 +646,6 @@ def run_utilization_tab():
         .rename(columns={"OPO": "DON_OPO"})
     )
 
-    # Merge basic utilization info (overall) to drive map coloring/size
-
-    overall_util = (
-        util_df.groupby("DON_OPO")
-        .agg(
-            Overall_Utilization=("Utilization_Rate", "mean"),
-            Overall_DCU=("DCU_Rate", "mean"),
-            Overall_Donors=("Total_Donors", "sum")
-        )
-        .reset_index()
-    )
-
-
-    opo_map_df = opo_locations.merge(
-        overall_util, on="DON_OPO", how="left"
-    )
-
     # ---- Session state for selected OPOs ----
     if "selected_opos_util" not in st.session_state:
         st.session_state.selected_opos_util = []
@@ -634,7 +662,35 @@ def run_utilization_tab():
             horizontal=True
         )
     with col_f2:
-        st.caption("DCD vs DBD comparison")
+        pass
+
+    # Merge basic utilization info (overall) to drive map coloring/size
+    map_util_df = util_df.copy()
+    if cas_filter != "All":
+        map_util_df = map_util_df[map_util_df["CAS_Period"] == cas_filter]
+
+    overall_util = (
+        map_util_df.groupby("DON_OPO")
+        .agg(
+            Overall_Utilization=("Utilization_Rate", "mean"),
+            Overall_DCU=("DCU_Rate", "mean"),
+            Overall_Donors=("Total_Donors", "sum")
+        )
+        .reset_index()
+    )
+
+    all_overall_util = (
+        util_df.groupby("DON_OPO")
+        .agg(Overall_Donors=("Total_Donors", "sum"))
+        .reset_index()
+    )
+    all_donor_max = max(all_overall_util["Overall_Donors"].max(), 1)
+
+    opo_map_df = opo_locations.merge(
+        overall_util, on="DON_OPO", how="left"
+    )
+    opo_map_df["Overall_Donors"] = opo_map_df["Overall_Donors"].fillna(0)
+    opo_map_df["Overall_DCU"] = opo_map_df["Overall_DCU"].fillna(0)
 
         
 
@@ -660,6 +716,10 @@ def run_utilization_tab():
         lambda x: "Selected" if x else "Click to select"
     )
     fig_map = go.Figure()
+    size_scale = 30
+    if cas_filter != "All":
+        size_scale = 45
+
     fig_map.add_trace(
         go.Scattergeo(
             lon=opo_map_df["OPO_Lon"],
@@ -668,7 +728,7 @@ def run_utilization_tab():
             customdata=opo_map_df[["DON_OPO", "Overall_DCU", "Overall_Donors", "Status"]].values,
             hovertemplate=(
                 "<b>%{customdata[0]}</b><br>"
-                "Time with DCU availability: %{customdata[1]:.1%}<br>"
+                "DCU Available Time: %{customdata[1]:.1%}<br>"
                 "Total donors: %{customdata[2]}<br>"
                 "%{customdata[3]}<extra></extra>"
             ),
@@ -676,8 +736,8 @@ def run_utilization_tab():
             marker=dict(
             size=(
                 opo_map_df["Overall_Donors"]
-                / max(opo_map_df["Overall_Donors"].max(), 1)
-                * 30 + 8
+                / all_donor_max
+                * size_scale + 8
             ),
             color=opo_map_df["Overall_DCU"],
             colorscale=[
@@ -695,7 +755,12 @@ def run_utilization_tab():
             ),
             opacity=opo_map_df["Selected"].map(lambda x: 1.0 if x else 0.6),
 
-            colorbar=dict(title="Time with DCU availability"),
+            colorbar=dict(
+                title="DCU Available Time",
+                tickformat=".0%",
+                tick0=0,
+                dtick=0.2
+            ),
             ),
         )
     )
@@ -803,27 +868,6 @@ def run_utilization_tab():
         delta_util = None
         selected_donors = 0
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric(
-            "National Utilization",
-            f"{national_util:.1%}",
-        )
-    with c2:
-        if selected_util is not None:
-            st.metric(
-                "Selected OPOs Utilization",
-                f"{selected_util:.1%}",
-                f"{delta_util:+.1%} vs national",
-            )
-        else:
-            st.metric("Selected OPOs Utilization", "—")
-
-    with c3:
-        st.metric("Donors (Selected OPOs)", f"{selected_donors:,}")
-
-    st.markdown("---")
-
     # ------------------------------------------------------------------
     # 5) Build utilization bar chart
     # ------------------------------------------------------------------
@@ -887,7 +931,9 @@ def run_utilization_tab():
             title="Utilization Rate (DCD vs DBD)",
             category_orders={"DON_OPO": opo_order},
         )
-        fig_util.update_yaxes(tickformat=".0%", rangemode="tozero")
+        fig_util.update_layout(legend_title_text="Donor Type")
+        fig_util.update_yaxes(title="Utilization Rate", tickformat=".0%", rangemode="tozero")
+        fig_util.update_xaxes(title="OPO")
         st.plotly_chart(fig_util, use_container_width=True)
 
     # ---- RIGHT: LUNDON (Overall vs Transplanted) ----
@@ -938,6 +984,7 @@ def run_utilization_tab():
                 title="Mean LUNDON Score (DBD only)",
                 category_orders={"OPO": opo_order},
             )
+            fig_lundon.update_layout(legend_title_text="")
             fig_lundon.update_yaxes(rangemode="tozero")
 
             fig_lundon.add_annotation(
