@@ -634,7 +634,7 @@ def run_utilization_tab():
             horizontal=True
         )
     with col_f2:
-        st.caption("Panel 3 is fixed to DCD vs DBD comparison.")
+        st.caption("DCD vs DBD comparison")
 
         
 
