@@ -572,6 +572,10 @@ def run_utilization_tab():
     lundon_df = None
     if os.path.exists(lundon_file):
         lundon_df = pd.read_csv(lundon_file)
+        #st.write("LUNDON file:", lundon_file)
+        #st.write("Mean_LUNDON max:", float(lundon_df["Mean_LUNDON"].max()))
+        #st.write(lundon_df.head(5))
+
     # Expect columns: ['DON_OPO', 'Mean_LUNDON']
 
     
@@ -621,7 +625,7 @@ def run_utilization_tab():
     # ------------------------------------------------------------------
     # 1) Controls row (filters & options)
     # ------------------------------------------------------------------
-    col_f1, col_f2, col_f3 = st.columns([1.4, 1.4, 1.2])
+    col_f1, col_f2 = st.columns([1.4, 1.6])
 
     with col_f1:
         cas_filter = st.radio(
@@ -629,21 +633,12 @@ def run_utilization_tab():
             ["All", "Pre-CAS", "Post-CAS"],
             horizontal=True
         )
-
     with col_f2:
-        donor_type_filter = st.radio(
-        "Donor Type",
-        ["All donors", "Compare DCD vs DBD"],
-        horizontal=True
-    )
+        st.caption("Panel 3 is fixed to DCD vs DBD comparison.")
 
         
 
-    with col_f3:
-        show_reference_line = st.checkbox(
-            "Show National Reference Line",
-            value=True
-        )
+
 
     st.markdown("---")
 
@@ -673,7 +668,7 @@ def run_utilization_tab():
             customdata=opo_map_df[["DON_OPO", "Overall_DCU", "Overall_Donors", "Status"]].values,
             hovertemplate=(
                 "<b>%{customdata[0]}</b><br>"
-                "DCU rate: %{customdata[1]:.1%}<br>"
+                "Time with DCU availability: %{customdata[1]:.1%}<br>"
                 "Total donors: %{customdata[2]}<br>"
                 "%{customdata[3]}<extra></extra>"
             ),
@@ -700,7 +695,7 @@ def run_utilization_tab():
             ),
             opacity=opo_map_df["Selected"].map(lambda x: 1.0 if x else 0.6),
 
-            colorbar=dict(title="DCU-era donor"),
+            colorbar=dict(title="Time with DCU availability"),
             ),
         )
     )
@@ -839,221 +834,123 @@ def run_utilization_tab():
         opos_for_chart = selected_opos
     else:
         opos_for_chart = []  # just national baseline
+    # ------------------------------------------------------------------
+    # Build utilization dataframe (always DCD vs DBD)
+    # ------------------------------------------------------------------
+    comp_df = df.groupby(["DON_OPO", "DCD"]).agg(
+        Used=("Used_Donors", "sum"),
+        Total=("Total_Donors", "sum")
+    ).reset_index()
 
-    # --- Simple mode: All / DBD / DCD ---
-    if donor_type_filter != "Compare DCD vs DBD":
-        # Calculate utilization as sum(Used) / sum(Total) per OPO
-        opo_util_df = df[df["DON_OPO"].isin(opos_for_chart)].groupby("DON_OPO").agg(
-            Used=("Used_Donors", "sum"),
-            Total=("Total_Donors", "sum")
-        ).reset_index()
+    comp_df["Utilization_Rate"] = comp_df["Used"] / comp_df["Total"]
+    comp_df["Donor_Type"] = comp_df["DCD"].map({0: "DBD", 1: "DCD"})
 
-        opo_util_df["Utilization"] = opo_util_df["Used"] / opo_util_df["Total"]
-        opo_util_df = opo_util_df.rename(columns={"DON_OPO": "OPO"})
+    # National rows (per DCD status)
+    nat_rows = []
+    for dcd_val in [0, 1]:
+        sub = df[df["DCD"] == dcd_val]
+        if len(sub) > 0 and sub["Total_Donors"].sum() > 0:
+            nat_rows.append({
+                "DON_OPO": "National",
+                "DCD": dcd_val,
+                "Utilization_Rate": sub["Used_Donors"].sum() / sub["Total_Donors"].sum(),
+                "Donor_Type": "DCD" if dcd_val == 1 else "DBD",
+            })
 
-    # ---- Base chart dataframe (Utilization) ----
-        chart_df = pd.concat(
-            [
-                pd.DataFrame(
-                    {"OPO": ["National"], "Utilization": [national_util]}
-                ),
-                opo_util_df[["OPO", "Utilization"]],
-            ],
-            ignore_index=True,
-        )   
+    util_plot_df = pd.concat([pd.DataFrame(nat_rows), comp_df], ignore_index=True) if nat_rows else comp_df.copy()
 
-    # ---- Merge LUNDON (DBD only) ----
-        if lundon_df is not None:
-            chart_df = chart_df.merge(
-                lundon_df.rename(columns={"DON_OPO": "OPO"}),
-                on="OPO",
-                how="left"
-            )
-        # --- ADD THIS: Ensure no duplicate OPOs before melting ---
-        chart_df = chart_df.groupby("OPO", as_index=False).agg({
-            "Utilization": "mean",
-            "Mean_LUNDON": "mean"
-        })
-
-    # ---- Reshape for grouped bars (Utilization vs LUNDON) ----
-        plot_df = chart_df.melt(
-            id_vars="OPO",
-            value_vars=["Utilization", "Mean_LUNDON"],
-            var_name="Metric",
-            value_name="Value"
-        ).dropna()
-
-        util_df = plot_df[plot_df["Metric"] == "Utilization"]
-        lundon_df_plot = plot_df[plot_df["Metric"] == "Mean_LUNDON"]
-
-        lundon_df_plot = (
-            lundon_df_plot
-            .groupby("OPO", as_index=False)
-            .agg(Value=("Value", "mean"))
-        )
-
-
-
-    
-        util_plot_df = util_df
-        lundon_plot_df = lundon_df_plot
-
-
-    
-
-    # --- Compare mode: grouped bars DCD vs DBD ---
+    # Filter to selected OPOs plus National
+    if selected_opos:
+        util_plot_df = util_plot_df[
+            (util_plot_df["DON_OPO"] == "National")
+            | (util_plot_df["DON_OPO"].isin(selected_opos))
+        ]
     else:
-        # Calculate utilization as sum(Used) / sum(Total) per OPO and DCD
-        comp_df = df.groupby(["DON_OPO", "DCD"]).agg(
-            Used=("Used_Donors", "sum"),
-            Total=("Total_Donors", "sum")
-        ).reset_index()
-        comp_df["Utilization_Rate"] = comp_df["Used"] / comp_df["Total"]
+        util_plot_df = util_plot_df[util_plot_df["DON_OPO"] == "National"]
 
-        # National rows (per DCD status)
-        nat_rows = []
-        for dcd_val in [0, 1]:
-            sub = df[df["DCD"] == dcd_val]
-            if len(sub) > 0 and sub["Total_Donors"].sum() > 0:
-                nat_rows.append(
-                    {
-                        "DON_OPO": "National",
-                        "DCD": dcd_val,
-                        "Utilization_Rate": sub["Used_Donors"].sum() / sub["Total_Donors"].sum(),
-                    }
-                )
-        if nat_rows:
-            comp_df = pd.concat(
-                [pd.DataFrame(nat_rows), comp_df], ignore_index=True
-            )
-
-        # Filter to selected OPOs + National
-        if opos_for_chart:
-            comp_df = comp_df[
-                (comp_df["DON_OPO"] == "National")
-                | (comp_df["DON_OPO"].isin(opos_for_chart))
-            ]
-        else:
-            comp_df = comp_df[comp_df["DON_OPO"] == "National"]
-
-        comp_df["Donor_Type"] = comp_df["DCD"].map(
-            {0: "DBD", 1: "DCD"}
-        )
-
-        
-        # ---- Add LUNDON as reference (DBD only) ----
-        if lundon_df is not None:
-            lundon_plot = lundon_df.rename(columns={"DON_OPO": "OPO"})
-
-            lundon_plot = (
-                lundon_plot
-                .groupby("OPO", as_index=False)
-                .agg(Value=("Mean_LUNDON", "mean"))
-            )
-
-            # Keep National + selected OPOs
-            if opos_for_chart:
-                lundon_plot = lundon_plot[
-                    (lundon_plot["OPO"] == "National")
-                    | (lundon_plot["OPO"].isin(opos_for_chart))
-                ]
-
-        util_plot_df = comp_df.copy()
-        lundon_plot_df = lundon_plot.copy()
-
-
-    # ------------------------------------------------------------------
-    # 6) Optional: data table for export / inspection
-    # ------------------------------------------------------------------
-    with st.expander("Show underlying data table (filtered)"):
-        table_df = df.copy()
-        if opos_for_chart:
-            table_df = table_df[table_df["DON_OPO"].isin(opos_for_chart)]
-        st.dataframe(
-            table_df[
-                [
-                    "Year",
-                    "Month",
-                    "DON_OPO",
-                    "CAS_Period",
-                    "DCD",
-                    "Total_Donors",
-                    "Used_Donors",
-                    "Utilization_Rate",
-                    "DCU_Rate",
-                ]
-            ].rename(columns={"DCD": "DCD(1) vs DBD(0)"}),
-            use_container_width=True,
-        )
     # ==========================
     # Draw utilization + LUNDON
     # ==========================
     col1, col2 = st.columns(2)
 
-    # ---- LEFT: Utilization ----
+    # ---- LEFT: Utilization (DCD vs DBD only) ----
     with col1:
-        if donor_type_filter == "Compare DCD vs DBD":
-            fig_util = px.bar(
-                util_plot_df,
-                x="DON_OPO",
-                y="Utilization_Rate",
-                color="Donor_Type",
-                barmode="group",
-                title="Utilization Rate (DCD vs DBD)",
-            )
-        else:
-          
-            rest = [opo for opo in util_plot_df["OPO"].unique() if opo != "National"]
-            #
+        rest = [o for o in util_plot_df["DON_OPO"].unique() if o != "National"]
+        opo_order = ["National"] + sorted(rest)
 
-            opo_order = ['National'] + rest
-
-            util_plot_df["OPO"] = pd.Categorical(util_plot_df["OPO"], categories=opo_order, ordered=True)
-            fig_util = px.bar(
-                util_plot_df,
-                x="OPO",
-                y="Value",
-                title="Utilization Rate",
-                text_auto=False,
-                category_orders={"OPO": opo_order},
-            )
-        fig_util.update_traces(text=None, texttemplate="%{y:.1%}", textposition="outside", cliponaxis=False)
-
-
+        fig_util = px.bar(
+            util_plot_df,
+            x="DON_OPO",
+            y="Utilization_Rate",
+            color="Donor_Type",
+            barmode="group",
+            title="Utilization Rate (DCD vs DBD)",
+            category_orders={"DON_OPO": opo_order},
+        )
         fig_util.update_yaxes(tickformat=".0%", rangemode="tozero")
-
-
-
         st.plotly_chart(fig_util, use_container_width=True)
 
-    # ---- RIGHT: LUNDON ----
+    # ---- RIGHT: LUNDON (Overall vs Transplanted) ----
     with col2:
-        fig_lundon = px.bar(
-            lundon_plot_df,
-            x="OPO",
-            y="Value",
-            title="Mean LUNDON Score (DBD only)",
-            text=lundon_plot_df["Value"].map(lambda x: f"{x:.1f}"),
-        )
+        if lundon_df is None or lundon_df.empty:
+            st.info("LUNDON summary not available.")
+        else:
+            ldf = lundon_df.copy()
 
-        fig_lundon.update_traces(
-            marker_color="#2ca02c",
-            textposition="outside"
-        )
+            if cas_filter != "All" and "CAS_Period" in ldf.columns:
+                ldf = ldf[ldf["CAS_Period"] == cas_filter]
 
-        fig_lundon.update_yaxes(rangemode="tozero")
+            if selected_opos:
+                ldf = ldf[
+                    (ldf["DON_OPO"] == "National")
+                    | (ldf["DON_OPO"].isin(selected_opos))
+                ]
+            else:
+                ldf = ldf[ldf["DON_OPO"] == "National"]
 
-        fig_lundon.add_annotation(
-            text="LUNDON calculated from DBD donors only",
-            xref="paper",
-            yref="paper",
-            x=0,
-            y=1.08,
-            showarrow=False,
-            font=dict(size=11, color="gray"),
-        )
+            ldf = ldf.rename(columns={"DON_OPO": "OPO"})
 
-        st.plotly_chart(fig_lundon, use_container_width=True)
+
+            ldf = (
+                ldf
+                .groupby(["OPO", "LUNDON_Group"], as_index=False)
+                .agg(Mean_LUNDON=("Mean_LUNDON", "mean"))
+            )
+
+            ldf["Value"] = ldf["Mean_LUNDON"]
+                    # TEMP DEBUG: inspect LUNDON values being plotted
+            #st.dataframe(
+            #    ldf[["OPO", "LUNDON_Group", "Mean_LUNDON"]]
+            #    .sort_values(["OPO", "LUNDON_Group"]),
+            #    use_container_width=True
+            #)
+
+
+            rest = [o for o in ldf["OPO"].unique() if o != "National"]
+            opo_order = ["National"] + sorted(rest)
+
+            fig_lundon = px.bar(
+                ldf,
+                x="OPO",
+                y="Value",
+                color="LUNDON_Group",
+                barmode="group",
+                title="Mean LUNDON Score (DBD only)",
+                category_orders={"OPO": opo_order},
+            )
+            fig_lundon.update_yaxes(rangemode="tozero")
+
+            fig_lundon.add_annotation(
+                text="LUNDON calculated from DBD donors only",
+                xref="paper",
+                yref="paper",
+                x=0,
+                y=1.08,
+                showarrow=False,
+                font=dict(size=11, color="gray"),
+            )
+
+            st.plotly_chart(fig_lundon, use_container_width=True)
 
        
 

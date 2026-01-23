@@ -172,26 +172,18 @@ def main():
     pd.DataFrame(p_values).to_csv(os.path.join(SCRIPT_DIR, 'viz_survival_stats.csv'), index=False)
 
 
-   
-    # ----------------------------------------------------------
+       # ----------------------------------------------------------
     # 4. DONOR UTILIZATION DATA 
     # ----------------------------------------------------------
     print("4. Computing Donor Utilization & CAS Period Classification...")
 
-    # CAS date
     CAS_DATE = pd.to_datetime("2023-03-09")
 
-    # Pre/Post CAS classification
     donor_df["CAS_Period"] = donor_df["DON_RECOV_DT"].apply(
         lambda d: "Pre-CAS" if d < CAS_DATE else "Post-CAS"
     )
-    
-    lundon_df = donor_df[
-        (donor_df["DCD"] == 0) &
-        (~donor_df["LUNDON"].isna())
-    ].copy()
-    
-        # Monthly OPO-level donor utilization summary, including LUNDON (DBD will have non-missing)
+
+    # Monthly OPO-level donor utilization summary
     donor_util = (
         donor_df.groupby(["Year", "Month", "DON_OPO", "CAS_Period", "DCD"])
         .agg(
@@ -205,22 +197,31 @@ def main():
         )
         .reset_index()
     )
-
     donor_util.to_csv(os.path.join(SCRIPT_DIR, "viz_donor_utilization.csv"), index=False)
 
-    # CAS summary (OPO-level, not monthly)
-    donor_cas_summary = (
-        donor_df.groupby(["DON_OPO", "CAS_Period"])
+    # -------------------------------
+    # LUNDON summary for plotting
+    # Two bars: Overall vs Transplanted
+    # DBD only, nonmissing LUNDON
+    # -------------------------------
+    lundon_base = donor_df[
+        (donor_df["DCD"] == 0) &
+        (~donor_df["LUNDON"].isna())
+    ].copy()
+
+    overall_lundon = (
+        lundon_base.groupby(["DON_OPO", "CAS_Period"])
         .agg(
-            Total=("Transplanted", "count"),
-            Used=("Transplanted", "sum"),
-            Utilization=("Transplanted", "mean")
+            Mean_LUNDON=("LUNDON", "mean"),
+            Median_LUNDON=("LUNDON", "median"),
+            N=("LUNDON", "count")
         )
         .reset_index()
     )
+    overall_lundon["LUNDON_Group"] = "Overall"
 
-    donor_lundon_summary = (
-        lundon_df
+    transplanted_lundon = (
+        lundon_base[lundon_base["Transplanted"] == 1]
         .groupby(["DON_OPO", "CAS_Period"])
         .agg(
             Mean_LUNDON=("LUNDON", "mean"),
@@ -229,17 +230,40 @@ def main():
         )
         .reset_index()
     )
+    transplanted_lundon["LUNDON_Group"] = "Transplanted"
 
-    donor_lundon_summary.to_csv(
+    lundon_summary = pd.concat([overall_lundon, transplanted_lundon], ignore_index=True)
+
+    # Optional: add National rows so the plot can show National alongside selected OPOs
+    nat_overall = pd.DataFrame([{
+        "DON_OPO": "National",
+        "CAS_Period": "All",
+        "Mean_LUNDON": lundon_base["LUNDON"].mean(),
+        "Median_LUNDON": lundon_base["LUNDON"].median(),
+        "N": int(lundon_base["LUNDON"].count()),
+        "LUNDON_Group": "Overall"
+    }])
+
+    nat_transplanted_base = lundon_base[lundon_base["Transplanted"] == 1]
+    nat_transplanted = pd.DataFrame([{
+        "DON_OPO": "National",
+        "CAS_Period": "All",
+        "Mean_LUNDON": nat_transplanted_base["LUNDON"].mean(),
+        "Median_LUNDON": nat_transplanted_base["LUNDON"].median(),
+        "N": int(nat_transplanted_base["LUNDON"].count()),
+        "LUNDON_Group": "Transplanted"
+    }])
+
+    lundon_summary = pd.concat([lundon_summary, nat_overall, nat_transplanted], ignore_index=True)
+
+    lundon_summary.to_csv(
         os.path.join(SCRIPT_DIR, "viz_lundon_summary.csv"),
         index=False
     )
 
+    print("DONE! CSVs regenerated with updated LUNDON summary.")
 
 
-
-
-    print("DONE! CSVs regenerated with correct column names.")
 
 if __name__ == "__main__":
     main()
