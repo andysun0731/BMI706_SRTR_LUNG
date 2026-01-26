@@ -249,7 +249,7 @@ def run_viz_tab():
                 colorscale=[[0, '#2166ac'], [0.5, '#9970ab'], [1, '#b2182b']],
                 cmin=0, cmax=1,
                 colorbar=dict(
-                    title="DCU Available Time",
+                    title="DCU Availability",
                     tickformat='.0%',
                     tick0=0,
                     dtick=0.2,
@@ -359,7 +359,7 @@ def run_viz_tab():
 # --- TAB 2: Survival ---
 @st.fragment
 def run_survival_tab():
-    st.header("Survival Analysis")
+    st.header("Graft Survival Analysis")
     if survival_data.empty:
         st.error("Survival data not found. Run precompute.py first.")
         return
@@ -405,7 +405,7 @@ def run_survival_tab():
                     colorscale=[[0, '#2166ac'], [0.5, '#9970ab'], [1, '#b2182b']],
                     cmin=0,
                     cmax=1,
-                    colorbar=dict(title="DCU Available Time", tickformat=".0%", tick0=0, dtick=0.2),
+                    colorbar=dict(title="DCU Availability", tickformat=".0%", tick0=0, dtick=0.2),
                     line=dict(
                         width=opo_locations['Selected'].map(lambda x: 3 if x else 1),
                         color=opo_locations['Selected'].map(lambda x: 'yellow' if x else 'white'),
@@ -514,7 +514,7 @@ def run_survival_tab():
     
     # Lines with dashed style for Nationwide
     lines = base.mark_line(interpolate='step-after').encode(
-        y=alt.Y('survival_prob:Q', title='Survival Probability', scale=alt.Scale(domain=[0, 1])),
+        y=alt.Y('survival_prob:Q', title='Graft Survival Probability', scale=alt.Scale(domain=[0, 1])),
         strokeDash=alt.condition(
             alt.datum.Group == 'Nationwide',
             alt.value([5, 5]),  # Dashed for Nationwide
@@ -570,7 +570,7 @@ def run_survival_tab():
             .tail(1)
             .set_index('Group')
         )
-        stats['5-year Graft Survival (95% CI)'] = stats['OPO'].map(
+        stats['5-year graft survival (95% CI)'] = stats['OPO'].map(
             lambda opo: (
                 f"{surv_5yr.loc[opo, 'survival_prob']:.1%} "
                 f"({surv_5yr.loc[opo, 'ci_lower']:.1%}–{surv_5yr.loc[opo, 'ci_upper']:.1%})"
@@ -585,7 +585,7 @@ def run_survival_tab():
             )
         stats = pd.concat(
             [
-                pd.DataFrame([{"OPO": "Nationwide", "P-value": pd.NA, "5-year Graft Survival (95% CI)": national_5yr}]),
+                pd.DataFrame([{"OPO": "Nationwide", "P-value": pd.NA, "5-year graft survival (95% CI)": national_5yr}]),
                 stats,
             ],
             ignore_index=True,
@@ -756,7 +756,7 @@ def run_utilization_tab():
             opacity=opo_map_df["Selected"].map(lambda x: 1.0 if x else 0.6),
 
             colorbar=dict(
-                title="DCU Available Time",
+                title="DCU Availability",
                 tickformat=".0%",
                 tick0=0,
                 dtick=0.2
