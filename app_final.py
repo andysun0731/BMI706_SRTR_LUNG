@@ -370,7 +370,7 @@ def run_survival_tab():
         st.session_state.selected_opos_survival = []
         
     st.subheader("Select OPOs for Survival Analysis")
-    st.write("**Click on OPO dots on the map to select/deselect. Green = selected, Blue = unselected.**")
+    st.write("**Click on OPO dots on the map to select/deselect.**")
     
     if not map_data.empty:
         opo_locations = map_data.groupby('OPO').agg({
@@ -1029,7 +1029,7 @@ st.markdown(
 # The Radio button automatically syncs with st.session_state.active_tab
 selected_tab = st.radio(
     "Navigate to:",
-    ["Map", "Survival", "Utilization"],
+    ["Map", "Utilization", "Survival"],
     horizontal=True,
     key="active_tab" 
 )
@@ -1039,8 +1039,8 @@ st.markdown("---")
 if selected_tab == "Map":
     run_viz_tab()
 
-if selected_tab == "Survival":
-    run_survival_tab()
-
 if selected_tab == "Utilization":
     run_utilization_tab()
+
+if selected_tab == "Survival":
+    run_survival_tab()

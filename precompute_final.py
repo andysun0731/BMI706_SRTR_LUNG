@@ -11,7 +11,7 @@ import os
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # UPDATE THIS IF NEEDED
 SOURCE_FILE = os.path.join(
-    "/Users/lanrr/Downloads/706_Data_Visualization/drive-download-20251208T024017Z-1-001",
+    "/Users/yangzhizhou/Documents/Yang/Puri CT lab/SRTR_Matchrun/DCU",
     "LU_REC_MAP.sav"
 )
 
@@ -41,7 +41,7 @@ def main():
 
         # Load donor-level data
         DONOR_FILE = os.path.join(
-            "/Users/lanrr/Downloads/706_Data_Visualization/drive-download-20251208T024017Z-1-001",
+            "/Users/yangzhizhou/Documents/Yang/Puri CT lab/SRTR_Matchrun/DCU",
             "LU_DON_MAP.sav"
         )
         donor_df, donor_meta = pyreadstat.read_sav(DONOR_FILE)
@@ -67,6 +67,7 @@ def main():
         df['Month'] = df['REC_TX_DT'].dt.month
     
     df_dcd0 = df[df['DCD'] == 0].copy()
+    df_all = df.copy()
 
 
     # 2. Map Data
@@ -76,14 +77,14 @@ def main():
     zip_cache = {}
     
     # Group by Year, Month, OPO, Center, and ZIP codes
-    grouped = df_dcd0.groupby(['Year', 'Month', 'DON_OPO', 'REC_CTR_CD', 'OPO_ZIP', 'TXP_CTR_ZIP']).size().reset_index(name='Count')
+    grouped = df_all.groupby(['Year', 'Month', 'DON_OPO', 'REC_CTR_CD', 'OPO_ZIP', 'TXP_CTR_ZIP']).size().reset_index(name='Count')
     
     for i, row in grouped.iterrows():
         # Quick check for DCU rate
-        subset = df_dcd0[(df_dcd0['Year'] == row['Year']) & 
-                         (df_dcd0['Month'] == row['Month']) &
-                         (df_dcd0['DON_OPO'] == row['DON_OPO']) & 
-                         (df_dcd0['REC_CTR_CD'] == row['REC_CTR_CD'])]
+        subset = df_all[(df_all['Year'] == row['Year']) & 
+                        (df_all['Month'] == row['Month']) &
+                        (df_all['DON_OPO'] == row['DON_OPO']) & 
+                        (df_all['REC_CTR_CD'] == row['REC_CTR_CD'])]
         dcu_rate = subset['any_DCU'].mean() if 'any_DCU' in subset.columns else 0
         
         opo_zip = str(row['OPO_ZIP'])[:5]
