@@ -66,7 +66,6 @@ def main():
         df['Year'] = df['REC_TX_DT'].dt.year
         df['Month'] = df['REC_TX_DT'].dt.month
     
-    df_dcd0 = df[df['DCD'] == 0].copy()
     df_all = df.copy()
 
 
@@ -111,9 +110,12 @@ def main():
 
     pd.DataFrame(map_data).to_csv(os.path.join(SCRIPT_DIR, 'viz_map_data.csv'), index=False)
 
-    # 3. Survival Data (THE FIX IS HERE)
-    print("3. Calculating Survival Curves...")
-    s_df = df_dcd0[(df_dcd0['REC_TX_DT'] >= '2018-01-01') & (df_dcd0['REC_TX_DT'] <= '2024-12-31')].copy()
+    # 3. Survival Data — Kaplan-Meier curves + per-OPO log-rank vs rest.
+    # Cohort: ALL recipients (DBD + DCD), matching the manuscript graft-survival
+    # model. (Adjusted per-OPO hazard ratios are computed in precompute_survival_hr.R
+    # and written to viz_survival_hr.csv.)
+    print("3. Calculating Survival Curves (ALL recipients: DBD + DCD)...")
+    s_df = df_all[(df_all['REC_TX_DT'] >= '2018-01-01') & (df_all['REC_TX_DT'] <= '2024-12-31')].copy()
     s_df['GraftTime'] = pd.to_numeric(s_df['GraftTime'], errors='coerce')
     s_df['GraftDeath'] = pd.to_numeric(s_df['GraftDeath'], errors='coerce')
     s_df = s_df.dropna(subset=['GraftTime', 'GraftDeath'])

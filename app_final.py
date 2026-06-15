@@ -16,11 +16,15 @@ def load_data():
         map_df = pd.read_csv(os.path.join(script_dir, 'viz_map_data.csv'))
         surv_df = pd.read_csv(os.path.join(script_dir, 'viz_survival_curves.csv'))
         stats_df = pd.read_csv(os.path.join(script_dir, 'viz_survival_stats.csv'))
-        return map_df, surv_df, stats_df
+        try:
+            hr_df = pd.read_csv(os.path.join(script_dir, 'viz_survival_hr.csv'))
+        except FileNotFoundError:
+            hr_df = pd.DataFrame()
+        return map_df, surv_df, stats_df, hr_df
     except FileNotFoundError:
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-map_data, survival_data, survival_stats = load_data()
+map_data, survival_data, survival_stats, survival_hr = load_data()
 
 # --- TAB 1: Viz Map ---
 @st.fragment
@@ -351,7 +355,7 @@ def run_viz_tab():
         st.metric("Number of OPOs", len(opo_agg))
     with col2:
         total_transplants = int(opo_agg['Transplants'].sum())
-        st.metric("Total Transplants (DBD)", total_transplants)
+        st.metric("Total Transplants", total_transplants)
     with col3:
         avg_dcu = opo_agg['DCU_Rate'].mean()
         st.metric("Donor at OPO with effective DCU", f"{avg_dcu:.1%}")
@@ -490,18 +494,19 @@ def run_survival_tab():
     color_scale = alt.Scale(domain=domain, range=color_range)
     group_color_map = dict(zip(domain, color_range))
     
-    # Build p-value text annotations
+    # Build adjusted-HR text annotations (this OPO vs rest of US)
     stats_annotation = []
     y_pos = 0.05
     for opo in selected:
-        opo_stats = survival_stats[survival_stats['OPO'] == opo]
-        if not opo_stats.empty:
-            p_value = opo_stats['P_Value'].values[0]
+        opo_hr = survival_hr[survival_hr['OPO'] == opo] if not survival_hr.empty else pd.DataFrame()
+        if not opo_hr.empty and pd.notna(opo_hr['HR'].values[0]):
+            hr_val = opo_hr['HR'].values[0]
+            adj_p = opo_hr['Adj_P_Value'].values[0]
             color = group_color_map.get(opo, 'black')
             stats_annotation.append({
                 'x': 50,
                 'y': y_pos,
-                'text': f"{opo}: p={p_value:.4f}",
+                'text': f"{opo}: aHR={hr_val:.2f} (p={adj_p:.3f})",
                 'color': color
             })
             y_pos += 0.05
@@ -555,13 +560,17 @@ def run_survival_tab():
     
     st.altair_chart(chart, use_container_width=True)
     
-    # Summary statistics table
+    # Summary statistics table — adjusted Cox HR (this OPO vs rest of US)
     if selected:
-        st.subheader("Log-Rank Test Results")
-        st.caption("P-values for each OPO compared against the rest of the nation (p < 0.05 highlighted in red)")
-        stats = survival_stats[survival_stats['OPO'].isin(selected)].copy()
-        stats = stats.rename(columns={"P_Value": "P-value"})
+        st.subheader("Adjusted Cox Model Results")
+        st.caption(
+            "Cox graft survival model for each OPO vs rest of the United States adjusting for "
+            "transplant time period, recipient age, sex, chronic steroids, pre-op ventilator, pre-op ECMO, "
+            "single-lung transplant, medical acuity, diagnosis group, donor age, ischemic time, donor PF ratio, "
+            "drowning/asphyxia death, DCD, EVLP, abnormal chest X-ray"
+        )
 
+        # 5-year KM survival (descriptive), read off the plotted curves
         surv_lookup = survival_data[survival_data['Group'].isin(selected + ['Nationwide'])].copy()
         surv_lookup = surv_lookup[surv_lookup['GraftTime'] <= 1825]
         surv_5yr = (
@@ -570,31 +579,70 @@ def run_survival_tab():
             .tail(1)
             .set_index('Group')
         )
-        stats['5-year graft survival (95% CI)'] = stats['OPO'].map(
-            lambda opo: (
-                f"{surv_5yr.loc[opo, 'survival_prob']:.1%} "
-                f"({surv_5yr.loc[opo, 'ci_lower']:.1%}–{surv_5yr.loc[opo, 'ci_upper']:.1%})"
-                if opo in surv_5yr.index else "—"
+
+        def fmt_5yr(group):
+            if group in surv_5yr.index:
+                return (
+                    f"{surv_5yr.loc[group, 'survival_prob']:.1%} "
+                    f"({surv_5yr.loc[group, 'ci_lower']:.1%}–{surv_5yr.loc[group, 'ci_upper']:.1%})"
+                )
+            return "—"
+
+        def hr_lookup(opo):
+            if survival_hr.empty:
+                return None
+            row = survival_hr[survival_hr['OPO'] == opo]
+            if row.empty or pd.isna(row['HR'].values[0]):
+                return None
+            return row.iloc[0]
+
+        rows = [{
+            "OPO": "Nationwide (reference)",
+            "Adjusted HR (95% CI)": "1.00 (reference)",
+            "Adjusted P-value": pd.NA,
+            "5-year graft survival (95% CI)": fmt_5yr("Nationwide"),
+        }]
+        has_unreliable = False
+        for opo in selected:
+            r = hr_lookup(opo)
+            if r is None:
+                rows.append({
+                    "OPO": opo,
+                    "Adjusted HR (95% CI)": "—",
+                    "Adjusted P-value": pd.NA,
+                    "5-year graft survival (95% CI)": fmt_5yr(opo),
+                })
+                continue
+            hr_str = f"{r['HR']:.2f} ({r['HR_Lower']:.2f}–{r['HR_Upper']:.2f})"
+            if 'Reliable' in r.index and not bool(r['Reliable']):
+                hr_str += " *"
+                has_unreliable = True
+            rows.append({
+                "OPO": opo,
+                "Adjusted HR (95% CI)": hr_str,
+                "Adjusted P-value": float(r['Adj_P_Value']),
+                "5-year graft survival (95% CI)": fmt_5yr(opo),
+            })
+
+        table = pd.DataFrame(rows, columns=[
+            "OPO", "Adjusted HR (95% CI)", "Adjusted P-value", "5-year graft survival (95% CI)"
+        ])
+
+        styler = (
+            table.style
+            .format({"Adjusted P-value": lambda v: "" if pd.isna(v) else f"{v:.4f}"})
+            .map(
+                lambda x: 'color: red; font-weight: bold' if isinstance(x, float) and pd.notna(x) and x < 0.05 else '',
+                subset=["Adjusted P-value"],
             )
         )
-        national_5yr = "—"
-        if "Nationwide" in surv_5yr.index:
-            national_5yr = (
-                f"{surv_5yr.loc['Nationwide', 'survival_prob']:.1%} "
-                f"({surv_5yr.loc['Nationwide', 'ci_lower']:.1%}–{surv_5yr.loc['Nationwide', 'ci_upper']:.1%})"
+        st.dataframe(styler, use_container_width=True)
+
+        if has_unreliable:
+            st.caption(
+                "\\* Fewer than 20 graft-failure events at this OPO — the adjusted HR is imprecise; "
+                "interpret with caution."
             )
-        stats = pd.concat(
-            [
-                pd.DataFrame([{"OPO": "Nationwide", "P-value": pd.NA, "5-year graft survival (95% CI)": national_5yr}]),
-                stats,
-            ],
-            ignore_index=True,
-        )
-        stats['Significant'] = stats['P-value'].apply(lambda x: '✓' if x < 0.05 else '')
-        st.dataframe(
-            stats.style.map(lambda x: 'color: red; font-weight: bold' if isinstance(x, float) and x < 0.05 else '', subset=['P-value']),
-            use_container_width=True
-        )
 
 
 # --- TAB 3: Utilization ---
