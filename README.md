@@ -37,8 +37,7 @@ record-level data are stored or served.
 ├── precompute_survival_hr.R    # per-OPO adjusted Cox HR (vs rest of US) → viz_survival_hr.csv
 ├── viz_*.csv                   # pre-aggregated, de-identified inputs the app reads (included)
 ├── requirements.txt            # Python dependencies for the app
-├── Dockerfile                  # container image for the Streamlit app
-└── frontend/, backend/, nginx/ # earlier Next.js + FastAPI prototype; NOT used by the live app
+└── Dockerfile                  # container image for the Streamlit app
 ```
 
 ## Running the tool
