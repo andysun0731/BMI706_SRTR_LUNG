@@ -9,7 +9,7 @@ organ-flow patterns and benchmark **organ procurement organization (OPO)** perfo
 utilization, donor quality, and graft survival — in the context of **donor care unit (DCU)**
 availability. This repository contains everything needed to run and reproduce the tool.
 
-Live instance: **http://100.48.96.152:8501/** (research server; this repository is the durable artifact).
+Live tool: **http://opolung2025.com/**
 
 ---
 
