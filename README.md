@@ -62,7 +62,7 @@ docker run -p 8501:8501 opo-lung-tool
 ### Regenerating the inputs from source data (optional)
 
 Recreating the `viz_*.csv` from raw data requires SRTR analytic files, which require an approved SRTR request and
-Data Use Agreement and are **not distributed here**. With those files available:
+Data Use Agreement and are **not distributed here**. With those files available (needs to modify and adapt variable names):
 
 ```bash
 python precompute_final.py        # → viz_map_data / survival_curves / survival_stats / donor_utilization / lundon_summary
