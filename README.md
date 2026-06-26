@@ -61,8 +61,7 @@ docker run -p 8501:8501 opo-lung-tool
 
 ### Regenerating the inputs from source data (optional)
 
-Recreating the `viz_*.csv` from raw data requires SRTR analytic files
-(`LU_REC_CLEAN.sav` / `LU_DON_CLEAN.sav` / `LU_*_MAP.sav`), which require an approved SRTR request and
+Recreating the `viz_*.csv` from raw data requires SRTR analytic files, which require an approved SRTR request and
 Data Use Agreement and are **not distributed here**. With those files available:
 
 ```bash
